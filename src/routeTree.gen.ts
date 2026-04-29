@@ -15,6 +15,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppTransactionsRouteImport } from './routes/_app/transactions'
 import { Route as AppTagsRouteImport } from './routes/_app/tags'
 import { Route as AppOnboardingRouteImport } from './routes/_app/onboarding'
+import { Route as AppLoansRouteImport } from './routes/_app/loans'
 import { Route as AppDashboardRouteImport } from './routes/_app/dashboard'
 import { Route as AppAccountsRouteImport } from './routes/_app/accounts'
 
@@ -47,6 +48,11 @@ const AppOnboardingRoute = AppOnboardingRouteImport.update({
   path: '/onboarding',
   getParentRoute: () => AppRoute,
 } as any)
+const AppLoansRoute = AppLoansRouteImport.update({
+  id: '/loans',
+  path: '/loans',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppDashboardRoute = AppDashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
@@ -63,6 +69,7 @@ export interface FileRoutesByFullPath {
   '/auth': typeof AuthRoute
   '/accounts': typeof AppAccountsRoute
   '/dashboard': typeof AppDashboardRoute
+  '/loans': typeof AppLoansRoute
   '/onboarding': typeof AppOnboardingRoute
   '/tags': typeof AppTagsRoute
   '/transactions': typeof AppTransactionsRoute
@@ -72,6 +79,7 @@ export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
   '/accounts': typeof AppAccountsRoute
   '/dashboard': typeof AppDashboardRoute
+  '/loans': typeof AppLoansRoute
   '/onboarding': typeof AppOnboardingRoute
   '/tags': typeof AppTagsRoute
   '/transactions': typeof AppTransactionsRoute
@@ -83,6 +91,7 @@ export interface FileRoutesById {
   '/auth': typeof AuthRoute
   '/_app/accounts': typeof AppAccountsRoute
   '/_app/dashboard': typeof AppDashboardRoute
+  '/_app/loans': typeof AppLoansRoute
   '/_app/onboarding': typeof AppOnboardingRoute
   '/_app/tags': typeof AppTagsRoute
   '/_app/transactions': typeof AppTransactionsRoute
@@ -94,6 +103,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/accounts'
     | '/dashboard'
+    | '/loans'
     | '/onboarding'
     | '/tags'
     | '/transactions'
@@ -103,6 +113,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/accounts'
     | '/dashboard'
+    | '/loans'
     | '/onboarding'
     | '/tags'
     | '/transactions'
@@ -113,6 +124,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/_app/accounts'
     | '/_app/dashboard'
+    | '/_app/loans'
     | '/_app/onboarding'
     | '/_app/tags'
     | '/_app/transactions'
@@ -168,6 +180,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppOnboardingRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/loans': {
+      id: '/_app/loans'
+      path: '/loans'
+      fullPath: '/loans'
+      preLoaderRoute: typeof AppLoansRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/dashboard': {
       id: '/_app/dashboard'
       path: '/dashboard'
@@ -188,6 +207,7 @@ declare module '@tanstack/react-router' {
 interface AppRouteChildren {
   AppAccountsRoute: typeof AppAccountsRoute
   AppDashboardRoute: typeof AppDashboardRoute
+  AppLoansRoute: typeof AppLoansRoute
   AppOnboardingRoute: typeof AppOnboardingRoute
   AppTagsRoute: typeof AppTagsRoute
   AppTransactionsRoute: typeof AppTransactionsRoute
@@ -196,6 +216,7 @@ interface AppRouteChildren {
 const AppRouteChildren: AppRouteChildren = {
   AppAccountsRoute: AppAccountsRoute,
   AppDashboardRoute: AppDashboardRoute,
+  AppLoansRoute: AppLoansRoute,
   AppOnboardingRoute: AppOnboardingRoute,
   AppTagsRoute: AppTagsRoute,
   AppTransactionsRoute: AppTransactionsRoute,
