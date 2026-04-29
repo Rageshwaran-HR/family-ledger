@@ -14,8 +14,11 @@ import { Route as AppRouteImport } from './routes/_app'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppTransactionsRouteImport } from './routes/_app/transactions'
 import { Route as AppTagsRouteImport } from './routes/_app/tags'
+import { Route as AppReportsRouteImport } from './routes/_app/reports'
+import { Route as AppRemindersRouteImport } from './routes/_app/reminders'
 import { Route as AppOnboardingRouteImport } from './routes/_app/onboarding'
 import { Route as AppLoansRouteImport } from './routes/_app/loans'
+import { Route as AppFamilyRouteImport } from './routes/_app/family'
 import { Route as AppDashboardRouteImport } from './routes/_app/dashboard'
 import { Route as AppAccountsRouteImport } from './routes/_app/accounts'
 
@@ -43,6 +46,16 @@ const AppTagsRoute = AppTagsRouteImport.update({
   path: '/tags',
   getParentRoute: () => AppRoute,
 } as any)
+const AppReportsRoute = AppReportsRouteImport.update({
+  id: '/reports',
+  path: '/reports',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppRemindersRoute = AppRemindersRouteImport.update({
+  id: '/reminders',
+  path: '/reminders',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppOnboardingRoute = AppOnboardingRouteImport.update({
   id: '/onboarding',
   path: '/onboarding',
@@ -51,6 +64,11 @@ const AppOnboardingRoute = AppOnboardingRouteImport.update({
 const AppLoansRoute = AppLoansRouteImport.update({
   id: '/loans',
   path: '/loans',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppFamilyRoute = AppFamilyRouteImport.update({
+  id: '/family',
+  path: '/family',
   getParentRoute: () => AppRoute,
 } as any)
 const AppDashboardRoute = AppDashboardRouteImport.update({
@@ -69,8 +87,11 @@ export interface FileRoutesByFullPath {
   '/auth': typeof AuthRoute
   '/accounts': typeof AppAccountsRoute
   '/dashboard': typeof AppDashboardRoute
+  '/family': typeof AppFamilyRoute
   '/loans': typeof AppLoansRoute
   '/onboarding': typeof AppOnboardingRoute
+  '/reminders': typeof AppRemindersRoute
+  '/reports': typeof AppReportsRoute
   '/tags': typeof AppTagsRoute
   '/transactions': typeof AppTransactionsRoute
 }
@@ -79,8 +100,11 @@ export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
   '/accounts': typeof AppAccountsRoute
   '/dashboard': typeof AppDashboardRoute
+  '/family': typeof AppFamilyRoute
   '/loans': typeof AppLoansRoute
   '/onboarding': typeof AppOnboardingRoute
+  '/reminders': typeof AppRemindersRoute
+  '/reports': typeof AppReportsRoute
   '/tags': typeof AppTagsRoute
   '/transactions': typeof AppTransactionsRoute
 }
@@ -91,8 +115,11 @@ export interface FileRoutesById {
   '/auth': typeof AuthRoute
   '/_app/accounts': typeof AppAccountsRoute
   '/_app/dashboard': typeof AppDashboardRoute
+  '/_app/family': typeof AppFamilyRoute
   '/_app/loans': typeof AppLoansRoute
   '/_app/onboarding': typeof AppOnboardingRoute
+  '/_app/reminders': typeof AppRemindersRoute
+  '/_app/reports': typeof AppReportsRoute
   '/_app/tags': typeof AppTagsRoute
   '/_app/transactions': typeof AppTransactionsRoute
 }
@@ -103,8 +130,11 @@ export interface FileRouteTypes {
     | '/auth'
     | '/accounts'
     | '/dashboard'
+    | '/family'
     | '/loans'
     | '/onboarding'
+    | '/reminders'
+    | '/reports'
     | '/tags'
     | '/transactions'
   fileRoutesByTo: FileRoutesByTo
@@ -113,8 +143,11 @@ export interface FileRouteTypes {
     | '/auth'
     | '/accounts'
     | '/dashboard'
+    | '/family'
     | '/loans'
     | '/onboarding'
+    | '/reminders'
+    | '/reports'
     | '/tags'
     | '/transactions'
   id:
@@ -124,8 +157,11 @@ export interface FileRouteTypes {
     | '/auth'
     | '/_app/accounts'
     | '/_app/dashboard'
+    | '/_app/family'
     | '/_app/loans'
     | '/_app/onboarding'
+    | '/_app/reminders'
+    | '/_app/reports'
     | '/_app/tags'
     | '/_app/transactions'
   fileRoutesById: FileRoutesById
@@ -173,6 +209,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppTagsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/reports': {
+      id: '/_app/reports'
+      path: '/reports'
+      fullPath: '/reports'
+      preLoaderRoute: typeof AppReportsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/reminders': {
+      id: '/_app/reminders'
+      path: '/reminders'
+      fullPath: '/reminders'
+      preLoaderRoute: typeof AppRemindersRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/onboarding': {
       id: '/_app/onboarding'
       path: '/onboarding'
@@ -185,6 +235,13 @@ declare module '@tanstack/react-router' {
       path: '/loans'
       fullPath: '/loans'
       preLoaderRoute: typeof AppLoansRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/family': {
+      id: '/_app/family'
+      path: '/family'
+      fullPath: '/family'
+      preLoaderRoute: typeof AppFamilyRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/dashboard': {
@@ -207,8 +264,11 @@ declare module '@tanstack/react-router' {
 interface AppRouteChildren {
   AppAccountsRoute: typeof AppAccountsRoute
   AppDashboardRoute: typeof AppDashboardRoute
+  AppFamilyRoute: typeof AppFamilyRoute
   AppLoansRoute: typeof AppLoansRoute
   AppOnboardingRoute: typeof AppOnboardingRoute
+  AppRemindersRoute: typeof AppRemindersRoute
+  AppReportsRoute: typeof AppReportsRoute
   AppTagsRoute: typeof AppTagsRoute
   AppTransactionsRoute: typeof AppTransactionsRoute
 }
@@ -216,8 +276,11 @@ interface AppRouteChildren {
 const AppRouteChildren: AppRouteChildren = {
   AppAccountsRoute: AppAccountsRoute,
   AppDashboardRoute: AppDashboardRoute,
+  AppFamilyRoute: AppFamilyRoute,
   AppLoansRoute: AppLoansRoute,
   AppOnboardingRoute: AppOnboardingRoute,
+  AppRemindersRoute: AppRemindersRoute,
+  AppReportsRoute: AppReportsRoute,
   AppTagsRoute: AppTagsRoute,
   AppTransactionsRoute: AppTransactionsRoute,
 }
