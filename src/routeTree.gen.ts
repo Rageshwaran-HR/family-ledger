@@ -12,8 +12,10 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AppTransactionsRouteImport } from './routes/_app/transactions'
 import { Route as AppOnboardingRouteImport } from './routes/_app/onboarding'
 import { Route as AppDashboardRouteImport } from './routes/_app/dashboard'
+import { Route as AppAccountsRouteImport } from './routes/_app/accounts'
 
 const AuthRoute = AuthRouteImport.update({
   id: '/auth',
@@ -29,6 +31,11 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppTransactionsRoute = AppTransactionsRouteImport.update({
+  id: '/transactions',
+  path: '/transactions',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppOnboardingRoute = AppOnboardingRouteImport.update({
   id: '/onboarding',
   path: '/onboarding',
@@ -39,39 +46,64 @@ const AppDashboardRoute = AppDashboardRouteImport.update({
   path: '/dashboard',
   getParentRoute: () => AppRoute,
 } as any)
+const AppAccountsRoute = AppAccountsRouteImport.update({
+  id: '/accounts',
+  path: '/accounts',
+  getParentRoute: () => AppRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
+  '/accounts': typeof AppAccountsRoute
   '/dashboard': typeof AppDashboardRoute
   '/onboarding': typeof AppOnboardingRoute
+  '/transactions': typeof AppTransactionsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
+  '/accounts': typeof AppAccountsRoute
   '/dashboard': typeof AppDashboardRoute
   '/onboarding': typeof AppOnboardingRoute
+  '/transactions': typeof AppTransactionsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/_app': typeof AppRouteWithChildren
   '/auth': typeof AuthRoute
+  '/_app/accounts': typeof AppAccountsRoute
   '/_app/dashboard': typeof AppDashboardRoute
   '/_app/onboarding': typeof AppOnboardingRoute
+  '/_app/transactions': typeof AppTransactionsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/auth' | '/dashboard' | '/onboarding'
+  fullPaths:
+    | '/'
+    | '/auth'
+    | '/accounts'
+    | '/dashboard'
+    | '/onboarding'
+    | '/transactions'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/auth' | '/dashboard' | '/onboarding'
+  to:
+    | '/'
+    | '/auth'
+    | '/accounts'
+    | '/dashboard'
+    | '/onboarding'
+    | '/transactions'
   id:
     | '__root__'
     | '/'
     | '/_app'
     | '/auth'
+    | '/_app/accounts'
     | '/_app/dashboard'
     | '/_app/onboarding'
+    | '/_app/transactions'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -103,6 +135,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_app/transactions': {
+      id: '/_app/transactions'
+      path: '/transactions'
+      fullPath: '/transactions'
+      preLoaderRoute: typeof AppTransactionsRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/onboarding': {
       id: '/_app/onboarding'
       path: '/onboarding'
@@ -117,17 +156,28 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppDashboardRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/accounts': {
+      id: '/_app/accounts'
+      path: '/accounts'
+      fullPath: '/accounts'
+      preLoaderRoute: typeof AppAccountsRouteImport
+      parentRoute: typeof AppRoute
+    }
   }
 }
 
 interface AppRouteChildren {
+  AppAccountsRoute: typeof AppAccountsRoute
   AppDashboardRoute: typeof AppDashboardRoute
   AppOnboardingRoute: typeof AppOnboardingRoute
+  AppTransactionsRoute: typeof AppTransactionsRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
+  AppAccountsRoute: AppAccountsRoute,
   AppDashboardRoute: AppDashboardRoute,
   AppOnboardingRoute: AppOnboardingRoute,
+  AppTransactionsRoute: AppTransactionsRoute,
 }
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
