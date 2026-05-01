@@ -7,12 +7,15 @@ import { motion } from "framer-motion";
 
 export const Route = createFileRoute("/auth")({
   component: AuthPage,
-  validateSearch: (s: Record<string, unknown>) => ({ mode: (s.mode as string) === "signup" ? "signup" : "signin" }),
+  validateSearch: (s: Record<string, unknown>) => ({
+    mode: (s.mode as string) === "signup" ? ("signup" as const) : ("signin" as const),
+    token: typeof s.token === "string" ? (s.token as string) : undefined,
+  }),
 });
 
 function AuthPage() {
-  const { mode: initialMode } = Route.useSearch();
-  const [mode, setMode] = useState<"signin" | "signup">(initialMode);
+  const { mode: initialMode, token } = Route.useSearch();
+  const [mode, setMode] = useState<"signin" | "signup">(token ? "signup" : initialMode);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
@@ -21,7 +24,17 @@ function AuthPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
 
-  useEffect(() => { if (user) navigate({ to: "/dashboard" }); }, [user, navigate]);
+  useEffect(() => {
+    if (user && !token) navigate({ to: "/dashboard" });
+    if (user && token) {
+      (async () => {
+        const { error } = await supabase.rpc("accept_invitation", { _token: token });
+        if (error) toast.error(error.message);
+        else toast.success("You've joined the family!");
+        navigate({ to: "/dashboard" });
+      })();
+    }
+  }, [user, navigate, token]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -34,10 +47,15 @@ function AuthPage() {
         });
         if (error) throw error;
         if (data.session) {
-          // create family
-          const { error: famErr } = await supabase.rpc("create_family_with_admin", { _name: familyName || `${fullName || "My"} Family` });
-          if (famErr) throw famErr;
-          toast.success("Welcome! Your family is ready.");
+          if (token) {
+            const { error: invErr } = await supabase.rpc("accept_invitation", { _token: token });
+            if (invErr) throw invErr;
+            toast.success("You've joined the family!");
+          } else {
+            const { error: famErr } = await supabase.rpc("create_family_with_admin", { _name: familyName || `${fullName || "My"} Family` });
+            if (famErr) throw famErr;
+            toast.success("Welcome! Your family is ready.");
+          }
           navigate({ to: "/dashboard" });
         } else {
           toast.success("Check your email to confirm your account.");
@@ -46,7 +64,8 @@ function AuthPage() {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
         toast.success("Welcome back!");
-        navigate({ to: "/dashboard" });
+        // useEffect will handle invitation acceptance if token present
+        if (!token) navigate({ to: "/dashboard" });
       }
     } catch (err: any) {
       toast.error(err.message || "Something went wrong");
@@ -61,18 +80,21 @@ function AuthPage() {
         className="w-full max-w-md rounded-3xl border border-border bg-card p-8 shadow-[var(--shadow-elevated)]">
         <div className="mb-6 text-center">
           <div className="mx-auto grid h-12 w-12 place-items-center rounded-2xl text-2xl text-primary-foreground" style={{ background: "var(--gradient-warm)" }}>♡</div>
-          <h1 className="mt-4 font-display text-3xl font-bold">{mode === "signup" ? "Create your family" : "Welcome back"}</h1>
+          <h1 className="mt-4 font-display text-3xl font-bold">{token ? "Join your family" : mode === "signup" ? "Create your family" : "Welcome back"}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            {mode === "signup" ? "Start tracking your family finances together." : "Sign in to your Hearth account."}
+            {token ? "You've been invited! Create an account or sign in to join." : mode === "signup" ? "Start tracking your family finances together." : "Sign in to your Hearth account."}
           </p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-3">
-          {mode === "signup" && (
+          {mode === "signup" && !token && (
             <>
               <Field label="Your name" value={fullName} onChange={setFullName} placeholder="Jamie Smith" required />
               <Field label="Family name" value={familyName} onChange={setFamilyName} placeholder="The Smiths" required />
             </>
+          )}
+          {mode === "signup" && token && (
+            <Field label="Your name" value={fullName} onChange={setFullName} placeholder="Jamie Smith" required />
           )}
           <Field label="Email" type="email" value={email} onChange={setEmail} placeholder="you@example.com" required />
           <Field label="Password" type="password" value={password} onChange={setPassword} placeholder="••••••••" required minLength={6} />
