@@ -76,6 +76,42 @@ export type Database = {
         }
         Relationships: []
       }
+      family_invitations: {
+        Row: {
+          accepted_at: string | null
+          accepted_by: string | null
+          created_at: string
+          email: string | null
+          expires_at: string
+          family_id: string
+          id: string
+          invited_by: string
+          token: string
+        }
+        Insert: {
+          accepted_at?: string | null
+          accepted_by?: string | null
+          created_at?: string
+          email?: string | null
+          expires_at?: string
+          family_id: string
+          id?: string
+          invited_by: string
+          token?: string
+        }
+        Update: {
+          accepted_at?: string | null
+          accepted_by?: string | null
+          created_at?: string
+          email?: string | null
+          expires_at?: string
+          family_id?: string
+          id?: string
+          invited_by?: string
+          token?: string
+        }
+        Relationships: []
+      }
       loan_payments: {
         Row: {
           amount: number
@@ -414,6 +450,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      accept_invitation: { Args: { _token: string }; Returns: string }
       create_family_with_admin: { Args: { _name: string }; Returns: string }
       get_user_family: { Args: { _user_id: string }; Returns: string }
       has_role: {
