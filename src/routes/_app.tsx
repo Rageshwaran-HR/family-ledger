@@ -26,7 +26,7 @@ function AppShell() {
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
-    if (!loading && !user) navigate({ to: "/auth" });
+    if (!loading && !user) navigate({ to: "/auth", search: { mode: "signin" } });
   }, [user, loading, navigate]);
 
   useEffect(() => { setOpen(false); }, [path]);
