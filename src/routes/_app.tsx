@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { supabase } from "@/integrations/supabase/client";
 import { formatMoney, formatDate } from "@/lib/format";
-import { LayoutDashboard, ArrowLeftRight, Wallet, Tag, Users, Bell, FileBarChart, LogOut, Menu, X } from "lucide-react";
+import { LayoutDashboard, ArrowLeftRight, Wallet, Tag, Users, Bell, FileBarChart, LogOut, Menu, X, Heart } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 export const Route = createFileRoute("/_app")({
