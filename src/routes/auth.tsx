@@ -7,10 +7,13 @@ import { motion } from "framer-motion";
 
 export const Route = createFileRoute("/auth")({
   component: AuthPage,
-  validateSearch: (s: Record<string, unknown>) => ({
-    mode: (s.mode as string) === "signup" ? ("signup" as const) : ("signin" as const),
-    token: typeof s.token === "string" ? (s.token as string) : undefined,
-  }),
+  validateSearch: (s: Record<string, unknown>): { mode: "signin" | "signup"; token?: string } => {
+    const out: { mode: "signin" | "signup"; token?: string } = {
+      mode: (s.mode as string) === "signup" ? "signup" : "signin",
+    };
+    if (typeof s.token === "string") out.token = s.token;
+    return out;
+  },
 });
 
 function AuthPage() {
