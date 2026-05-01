@@ -27,7 +27,7 @@ function Dashboard() {
       const [t, g, m] = await Promise.all([
         supabase.from("transactions").select("*").order("occurred_on", { ascending: false }),
         supabase.from("tags").select("id,name,color"),
-        supabase.from("profiles").select("id,full_name").eq("family_id", profile.family_id),
+        supabase.from("profiles").select("id,full_name").eq("family_id", profile.family_id!),
       ]);
       setTxs((t.data as Tx[]) ?? []);
       setTags((g.data as Tag[]) ?? []);

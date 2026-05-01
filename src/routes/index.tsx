@@ -39,8 +39,8 @@ function Landing() {
           Hearth
         </div>
         <div className="flex items-center gap-2">
-          <Link to="/auth" className="rounded-full px-4 py-2 text-sm font-medium text-foreground hover:bg-secondary">Sign in</Link>
-          <Link to="/auth" search={{ mode: "signup" }} className="rounded-full px-4 py-2 text-sm font-medium text-primary-foreground shadow-[var(--shadow-soft)]" style={{ background: "var(--gradient-warm)" }}>Get started</Link>
+          <Link to="/auth" search={{ mode: "signin" as const }} className="rounded-full px-4 py-2 text-sm font-medium text-foreground hover:bg-secondary">Sign in</Link>
+          <Link to="/auth" search={{ mode: "signup" as const }} className="rounded-full px-4 py-2 text-sm font-medium text-primary-foreground shadow-[var(--shadow-soft)]" style={{ background: "var(--gradient-warm)" }}>Get started</Link>
         </div>
       </header>
 
@@ -57,10 +57,10 @@ function Landing() {
         </motion.p>
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, delay: 0.3 }}
           className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
-          <Link to="/auth" search={{ mode: "signup" }} className="rounded-full px-7 py-3.5 text-base font-semibold text-primary-foreground shadow-[var(--shadow-elevated)]" style={{ background: "var(--gradient-warm)" }}>
+          <Link to="/auth" search={{ mode: "signup" as const }} className="rounded-full px-7 py-3.5 text-base font-semibold text-primary-foreground shadow-[var(--shadow-elevated)]" style={{ background: "var(--gradient-warm)" }}>
             Create your family
           </Link>
-          <Link to="/auth" className="rounded-full border border-border bg-card px-7 py-3.5 text-base font-semibold text-foreground hover:bg-secondary">
+          <Link to="/auth" search={{ mode: "signin" as const }} className="rounded-full border border-border bg-card px-7 py-3.5 text-base font-semibold text-foreground hover:bg-secondary">
             I have an account
           </Link>
         </motion.div>
