@@ -265,7 +265,7 @@ function ImportDialog({ onClose, onImported, tags, accounts }: { onClose: () => 
     if (newTagNames.size > 0) {
       const colors = ["#e76f51","#a98467","#2a9d8f","#e9c46a","#ef476f","#9d4edd","#06a77d","#6c757d"];
       const inserts = Array.from(newTagNames).map((name, i) => ({
-        family_id: profile.family_id, name, color: colors[i % colors.length], icon: "Tag", created_by: user.id,
+        family_id: profile.family_id!, name, color: colors[i % colors.length], icon: "Tag", created_by: user.id,
       }));
       const { data: created, error: tErr } = await supabase.from("tags").insert(inserts).select("id,name");
       if (tErr) { toast.error("Tag creation failed: " + tErr.message); setStep("map"); return; }
@@ -292,7 +292,9 @@ function ImportDialog({ onClose, onImported, tags, accounts }: { onClose: () => 
       if (amt < 0 && !mapping.type) type = "expense";
 
       const tagId = mapping.category ? tagMap.get(String(r[mapping.category] ?? "").toLowerCase().trim()) ?? null : null;
-      const acctId = mapping.account ? acctMap.get(String(r[mapping.account] ?? "").toLowerCase().trim()) ?? defaultAccount || null : (defaultAccount || null);
+      const acctId = mapping.account
+        ? (acctMap.get(String(r[mapping.account] ?? "").toLowerCase().trim()) ?? (defaultAccount || null))
+        : (defaultAccount || null);
       const note = mapping.note ? String(r[mapping.note] ?? "").trim() || null : null;
 
       inserts.push({
