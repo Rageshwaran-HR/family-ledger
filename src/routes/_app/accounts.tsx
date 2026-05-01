@@ -111,7 +111,7 @@ function AccountDialog({ onClose, onSaved }: { onClose: () => void; onSaved: () 
           </label>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Starting balance" type="number" step="0.01" value={balance} onChange={setBalance} />
-            <Field label="Currency" value={currency} onChange={(v) => setCurrency(v.toUpperCase())} />
+            <Field label="Currency" value={currency} onChange={(v: string) => setCurrency(v.toUpperCase())} />
           </div>
         </div>
         <button disabled={loading} className="mt-5 w-full rounded-full px-5 py-3 font-semibold text-primary-foreground" style={{ background: "var(--gradient-warm)" }}>{loading ? "Saving…" : "Add account"}</button>
