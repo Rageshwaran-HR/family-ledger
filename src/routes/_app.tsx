@@ -45,15 +45,23 @@ function AppShell() {
   // Load upcoming notifications (reminders + loan dues within 7 days)
   useEffect(() => {
     if (!profile?.family_id) return;
+    const notifyBills = (profile as any).notify_bills !== false;
+    const notifyLoans = (profile as any).notify_loans !== false;
+    const daysAhead = Math.max(1, Math.min(60, Number((profile as any).notify_days_ahead) || 7));
+    if (!notifyBills && !notifyLoans) { setNotifications([]); return; }
     let cancelled = false;
     const loadNotifs = async () => {
       const today = new Date(); today.setHours(0,0,0,0);
-      const horizon = new Date(today); horizon.setDate(horizon.getDate() + 7);
+      const horizon = new Date(today); horizon.setDate(horizon.getDate() + daysAhead);
       const horizonISO = horizon.toISOString().slice(0,10);
 
       const [{ data: reminders }, { data: loans }] = await Promise.all([
-        supabase.from("reminders").select("id,title,due_date,amount,is_paid").eq("is_paid", false).lte("due_date", horizonISO),
-        supabase.from("loans").select("id,name,start_date,interest_rate_monthly,remaining_balance,status").eq("status", "active"),
+        notifyBills
+          ? supabase.from("reminders").select("id,title,due_date,amount,is_paid").eq("is_paid", false).lte("due_date", horizonISO)
+          : Promise.resolve({ data: [] as any[] } as any),
+        notifyLoans
+          ? supabase.from("loans").select("id,name,start_date,interest_rate_monthly,remaining_balance,status").eq("status", "active")
+          : Promise.resolve({ data: [] as any[] } as any),
       ]);
 
       const items: typeof notifications = [];
@@ -77,7 +85,7 @@ function AppShell() {
     loadNotifs();
     const interval = setInterval(loadNotifs, 60_000);
     return () => { cancelled = true; clearInterval(interval); };
-  }, [profile?.family_id]);
+  }, [profile?.family_id, (profile as any)?.notify_bills, (profile as any)?.notify_loans, (profile as any)?.notify_days_ahead]);
 
   if (loading || !user) {
     return <div className="grid min-h-screen place-items-center text-muted-foreground">Loading…</div>;
