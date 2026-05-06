@@ -227,6 +227,9 @@ export type Database = {
           family_id: string | null
           full_name: string
           id: string
+          notify_bills: boolean
+          notify_days_ahead: number
+          notify_loans: boolean
           updated_at: string
         }
         Insert: {
@@ -236,6 +239,9 @@ export type Database = {
           family_id?: string | null
           full_name?: string
           id: string
+          notify_bills?: boolean
+          notify_days_ahead?: number
+          notify_loans?: boolean
           updated_at?: string
         }
         Update: {
@@ -245,6 +251,9 @@ export type Database = {
           family_id?: string | null
           full_name?: string
           id?: string
+          notify_bills?: boolean
+          notify_days_ahead?: number
+          notify_loans?: boolean
           updated_at?: string
         }
         Relationships: [
