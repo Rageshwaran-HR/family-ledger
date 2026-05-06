@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { toast } from "sonner";
-import { Crown, Copy, Mail, Trash2, Plus } from "lucide-react";
+import { Crown, Copy, Mail, Trash2, Plus, Check, Clock, XCircle } from "lucide-react";
 
 export const Route = createFileRoute("/_app/family")({ component: Family });
 
@@ -15,6 +15,15 @@ function Family() {
   const [invites, setInvites] = useState<any[]>([]);
   const [inviteEmail, setInviteEmail] = useState("");
   const [creating, setCreating] = useState(false);
+  const [shownLink, setShownLink] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [, forceTick] = useState(0);
+
+  // Tick every minute for countdown
+  useEffect(() => {
+    const i = setInterval(() => forceTick((n) => n + 1), 60_000);
+    return () => clearInterval(i);
+  }, []);
 
   const load = async () => {
     if (!profile?.family_id) return;
@@ -46,20 +55,45 @@ function Family() {
     setInviteEmail("");
     await load();
     if (data?.token) {
-      navigator.clipboard.writeText(inviteLink(data.token)).catch(() => {});
-      toast.success("Invite created and link copied!");
+      const link = inviteLink(data.token);
+      setShownLink(link);
+      try {
+        await navigator.clipboard.writeText(link);
+        toast.success("Invite link created and copied to clipboard");
+      } catch {
+        toast.success("Invite link created — copy it from the box below");
+      }
     }
   };
 
-  const copyInviteLink = (token: string) => {
-    navigator.clipboard.writeText(inviteLink(token));
-    toast.success("Invite link copied!");
+  const copyInviteLink = async (id: string, token: string) => {
+    const link = inviteLink(token);
+    try {
+      await navigator.clipboard.writeText(link);
+      setCopiedId(id);
+      setTimeout(() => setCopiedId((c) => (c === id ? null : c)), 2000);
+      toast.success("Invite link copied!");
+    } catch {
+      setShownLink(link);
+      toast.message("Clipboard blocked — copy from the box below");
+    }
   };
 
   const revokeInvite = async (id: string) => {
     if (!confirm("Revoke this invitation?")) return;
     const { error } = await supabase.from("family_invitations").delete().eq("id", id);
     if (error) toast.error(error.message); else { toast.success("Revoked"); load(); }
+  };
+
+  const countdown = (expiresAt: string): string => {
+    const ms = new Date(expiresAt).getTime() - Date.now();
+    if (ms <= 0) return "expired";
+    const mins = Math.floor(ms / 60_000);
+    const days = Math.floor(mins / (60 * 24));
+    const hours = Math.floor((mins % (60 * 24)) / 60);
+    if (days > 0) return `${days}d ${hours}h left`;
+    if (hours > 0) return `${hours}h ${mins % 60}m left`;
+    return `${mins}m left`;
   };
 
   return (
@@ -94,27 +128,61 @@ function Family() {
             </button>
           </div>
 
+          {shownLink && (
+            <div className="mt-4 rounded-2xl border border-primary/30 bg-primary/5 p-3">
+              <div className="text-xs font-semibold uppercase tracking-wider text-primary mb-1.5">Share this link with your family member</div>
+              <div className="flex items-center gap-2">
+                <input
+                  readOnly
+                  value={shownLink}
+                  onFocus={(e) => e.currentTarget.select()}
+                  className="flex-1 min-w-0 rounded-lg border border-input bg-background px-3 py-2 text-xs font-mono"
+                />
+                <button
+                  onClick={async () => {
+                    try { await navigator.clipboard.writeText(shownLink); toast.success("Copied!"); } catch { toast.error("Select the text and press Ctrl/Cmd + C"); }
+                  }}
+                  className="inline-flex items-center gap-1 rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground"
+                >
+                  <Copy className="h-3 w-3" /> Copy
+                </button>
+                <button onClick={() => setShownLink(null)} className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-secondary"><XCircle className="h-4 w-4" /></button>
+              </div>
+            </div>
+          )}
+
           {invites.length > 0 && (
             <div className="mt-5 space-y-2">
               <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Pending invitations</h3>
               {invites.map((inv) => {
                 const expired = new Date(inv.expires_at) < new Date();
                 const used = !!inv.accepted_at;
+                const status: "accepted" | "expired" | "pending" = used ? "accepted" : expired ? "expired" : "pending";
                 return (
                   <div key={inv.id} className="flex flex-wrap items-center gap-2 rounded-2xl border border-border bg-secondary/50 p-3 text-sm">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
                         <span className="font-medium truncate">{inv.email || "No email"}</span>
-                        {used && <span className="rounded-full bg-success/20 px-2 py-0.5 text-xs font-semibold text-success">Used</span>}
-                        {expired && !used && <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-semibold">Expired</span>}
-                        {!used && !expired && <span className="rounded-full bg-warning/30 px-2 py-0.5 text-xs font-semibold">Pending</span>}
+                        {status === "accepted" && <span className="inline-flex items-center gap-1 rounded-full bg-success/20 px-2 py-0.5 text-xs font-semibold text-success"><Check className="h-3 w-3" /> Accepted</span>}
+                        {status === "expired" && <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs font-semibold"><XCircle className="h-3 w-3" /> Expired</span>}
+                        {status === "pending" && <span className="inline-flex items-center gap-1 rounded-full bg-warning/30 px-2 py-0.5 text-xs font-semibold"><Clock className="h-3 w-3" /> Pending</span>}
                       </div>
-                      <div className="text-xs text-muted-foreground">Expires {new Date(inv.expires_at).toLocaleDateString()}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {status === "accepted"
+                          ? <>Accepted {new Date(inv.accepted_at).toLocaleDateString()}</>
+                          : <>Expires {new Date(inv.expires_at).toLocaleDateString()} · <span className={status === "expired" ? "text-destructive" : ""}>{countdown(inv.expires_at)}</span></>
+                        }
+                      </div>
                     </div>
-                    {!used && !expired && (
-                      <button onClick={() => copyInviteLink(inv.token)} className="inline-flex items-center gap-1 rounded-full bg-card border border-border px-3 py-1.5 text-xs font-semibold hover:bg-background">
-                        <Copy className="h-3 w-3" /> Copy link
-                      </button>
+                    {status === "pending" && (
+                      <>
+                        <button onClick={() => copyInviteLink(inv.id, inv.token)} className="inline-flex items-center gap-1 rounded-full bg-card border border-border px-3 py-1.5 text-xs font-semibold hover:bg-background">
+                          {copiedId === inv.id ? <><Check className="h-3 w-3" /> Copied</> : <><Copy className="h-3 w-3" /> Copy link</>}
+                        </button>
+                        <button onClick={() => setShownLink(inviteLink(inv.token))} className="inline-flex items-center gap-1 rounded-full bg-card border border-border px-3 py-1.5 text-xs font-semibold hover:bg-background">
+                          Show link
+                        </button>
+                      </>
                     )}
                     <button onClick={() => revokeInvite(inv.id)} className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
                       <Trash2 className="h-4 w-4" />

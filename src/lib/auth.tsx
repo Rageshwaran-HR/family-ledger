@@ -8,6 +8,9 @@ export interface Profile {
   email: string | null;
   family_id: string | null;
   avatar_url: string | null;
+  notify_bills?: boolean;
+  notify_loans?: boolean;
+  notify_days_ahead?: number;
 }
 
 export interface AuthState {

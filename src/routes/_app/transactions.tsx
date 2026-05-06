@@ -209,7 +209,12 @@ function guessMapping(headers: string[]): Record<FieldKey, string> {
 function ImportDialog({ onClose, onImported, tags, accounts }: { onClose: () => void; onImported: () => void; tags: any[]; accounts: any[] }) {
   const { profile, user } = useAuth();
   const fileRef = useRef<HTMLInputElement>(null);
-  const [step, setStep] = useState<"upload" | "map" | "importing">("upload");
+  const [step, setStep] = useState<"upload" | "sheet" | "map" | "importing">("upload");
+  const [workbook, setWorkbook] = useState<XLSX.WorkBook | null>(null);
+  const [sheetNames, setSheetNames] = useState<string[]>([]);
+  const [selectedSheet, setSelectedSheet] = useState<string>("");
+  const [headerRow, setHeaderRow] = useState<number>(1);
+  const [sheetPreview, setSheetPreview] = useState<any[][]>([]);
   const [headers, setHeaders] = useState<string[]>([]);
   const [rows, setRows] = useState<ImportRow[]>([]);
   const [mapping, setMapping] = useState<Record<FieldKey, string>>({ date: "", amount: "", type: "", note: "", category: "", account: "" });
@@ -221,17 +226,52 @@ function ImportDialog({ onClose, onImported, tags, accounts }: { onClose: () => 
     try {
       const buf = await file.arrayBuffer();
       const wb = XLSX.read(buf, { type: "array" });
-      const sheet = wb.Sheets[wb.SheetNames[0]];
-      const json = XLSX.utils.sheet_to_json<ImportRow>(sheet, { defval: "", raw: false });
-      if (json.length === 0) { toast.error("No rows found in file."); return; }
-      const hdrs = Object.keys(json[0]);
-      setHeaders(hdrs);
-      setRows(json);
-      setMapping(guessMapping(hdrs));
-      setStep("map");
+      if (wb.SheetNames.length === 0) { toast.error("No sheets found in file."); return; }
+      setWorkbook(wb);
+      setSheetNames(wb.SheetNames);
+      setSelectedSheet(wb.SheetNames[0]);
+      setHeaderRow(1);
+      previewSheet(wb, wb.SheetNames[0]);
+      setStep("sheet");
     } catch (e: any) {
       toast.error("Could not read file: " + e.message);
     }
+  };
+
+  const previewSheet = (wb: XLSX.WorkBook, name: string) => {
+    const sheet = wb.Sheets[name];
+    if (!sheet) { setSheetPreview([]); return; }
+    const aoa = XLSX.utils.sheet_to_json<any[]>(sheet, { header: 1, defval: "", raw: false, blankrows: false });
+    setSheetPreview(aoa.slice(0, 10) as any[][]);
+  };
+
+  const confirmSheet = () => {
+    if (!workbook || !selectedSheet) return;
+    const sheet = workbook.Sheets[selectedSheet];
+    const aoa = XLSX.utils.sheet_to_json<any[]>(sheet, { header: 1, defval: "", raw: false, blankrows: false });
+    if (aoa.length < headerRow) { toast.error("Header row is beyond the sheet's data."); return; }
+    const rawHeaders = (aoa[headerRow - 1] || []).map((h: any, i: number) => {
+      const v = String(h ?? "").trim();
+      return v || `Column ${i + 1}`;
+    });
+    // Deduplicate
+    const seen = new Map<string, number>();
+    const hdrs = rawHeaders.map((h: string) => {
+      const c = seen.get(h) || 0;
+      seen.set(h, c + 1);
+      return c === 0 ? h : `${h} (${c + 1})`;
+    });
+    const dataRows = aoa.slice(headerRow).filter((r) => r.some((c) => String(c ?? "").trim() !== ""));
+    const json: ImportRow[] = dataRows.map((r) => {
+      const o: ImportRow = {};
+      hdrs.forEach((h, i) => { o[h] = r[i] ?? ""; });
+      return o;
+    });
+    if (json.length === 0) { toast.error("No data rows found below the header row."); return; }
+    setHeaders(hdrs);
+    setRows(json);
+    setMapping(guessMapping(hdrs));
+    setStep("map");
   };
 
   const parseDate = (v: any): string | null => {
@@ -356,6 +396,59 @@ function ImportDialog({ onClose, onImported, tags, accounts }: { onClose: () => 
           </div>
         )}
 
+        {step === "sheet" && (
+          <div className="space-y-4">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-muted-foreground">Worksheet</span>
+                <select
+                  value={selectedSheet}
+                  onChange={(e) => { setSelectedSheet(e.target.value); if (workbook) previewSheet(workbook, e.target.value); }}
+                  className="w-full rounded-xl border border-input bg-background px-3.5 py-2.5 text-sm"
+                >
+                  {sheetNames.map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-muted-foreground">Header is on row #</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={Math.max(1, sheetPreview.length)}
+                  value={headerRow}
+                  onChange={(e) => setHeaderRow(Math.max(1, parseInt(e.target.value || "1", 10)))}
+                  className="w-full rounded-xl border border-input bg-background px-3.5 py-2.5 text-sm"
+                />
+              </label>
+            </div>
+
+            {sheetPreview.length > 0 && (
+              <div className="rounded-2xl border border-border overflow-hidden">
+                <div className="bg-secondary/50 px-3 py-2 text-xs font-semibold">Sheet preview (first 10 rows) — header row highlighted</div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <tbody>
+                      {sheetPreview.map((row, i) => (
+                        <tr key={i} className={i + 1 === headerRow ? "bg-primary/15 font-semibold" : "border-t border-border"}>
+                          <td className="px-2 py-1.5 text-muted-foreground w-8">{i + 1}</td>
+                          {row.map((cell, j) => (
+                            <td key={j} className="px-2 py-1.5 whitespace-nowrap max-w-[160px] truncate">{String(cell ?? "")}</td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            <div className="flex gap-2">
+              <button onClick={() => setStep("upload")} className="rounded-full border border-border bg-card px-4 py-2.5 text-sm font-semibold hover:bg-secondary">Back</button>
+              <button onClick={confirmSheet} className="flex-1 rounded-full px-5 py-2.5 text-sm font-semibold text-primary-foreground" style={{ background: "var(--gradient-warm)" }}>Continue with this sheet</button>
+            </div>
+          </div>
+        )}
+
         {step === "map" && (
           <div className="space-y-4">
             <div className="rounded-2xl bg-secondary/50 p-3 text-sm">
@@ -420,7 +513,7 @@ function ImportDialog({ onClose, onImported, tags, accounts }: { onClose: () => 
             )}
 
             <div className="flex gap-2">
-              <button onClick={() => setStep("upload")} className="rounded-full border border-border bg-card px-4 py-2.5 text-sm font-semibold hover:bg-secondary">Back</button>
+              <button onClick={() => setStep("sheet")} className="rounded-full border border-border bg-card px-4 py-2.5 text-sm font-semibold hover:bg-secondary">Back</button>
               <button onClick={runImport} className="flex-1 rounded-full px-5 py-2.5 text-sm font-semibold text-primary-foreground" style={{ background: "var(--gradient-warm)" }}>Import {rows.length} rows</button>
             </div>
           </div>

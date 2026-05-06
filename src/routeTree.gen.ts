@@ -14,6 +14,7 @@ import { Route as AppRouteImport } from './routes/_app'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppTransactionsRouteImport } from './routes/_app/transactions'
 import { Route as AppTagsRouteImport } from './routes/_app/tags'
+import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as AppReportsRouteImport } from './routes/_app/reports'
 import { Route as AppRemindersRouteImport } from './routes/_app/reminders'
 import { Route as AppOnboardingRouteImport } from './routes/_app/onboarding'
@@ -44,6 +45,11 @@ const AppTransactionsRoute = AppTransactionsRouteImport.update({
 const AppTagsRoute = AppTagsRouteImport.update({
   id: '/tags',
   path: '/tags',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSettingsRoute = AppSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
   getParentRoute: () => AppRoute,
 } as any)
 const AppReportsRoute = AppReportsRouteImport.update({
@@ -92,6 +98,7 @@ export interface FileRoutesByFullPath {
   '/onboarding': typeof AppOnboardingRoute
   '/reminders': typeof AppRemindersRoute
   '/reports': typeof AppReportsRoute
+  '/settings': typeof AppSettingsRoute
   '/tags': typeof AppTagsRoute
   '/transactions': typeof AppTransactionsRoute
 }
@@ -105,6 +112,7 @@ export interface FileRoutesByTo {
   '/onboarding': typeof AppOnboardingRoute
   '/reminders': typeof AppRemindersRoute
   '/reports': typeof AppReportsRoute
+  '/settings': typeof AppSettingsRoute
   '/tags': typeof AppTagsRoute
   '/transactions': typeof AppTransactionsRoute
 }
@@ -120,6 +128,7 @@ export interface FileRoutesById {
   '/_app/onboarding': typeof AppOnboardingRoute
   '/_app/reminders': typeof AppRemindersRoute
   '/_app/reports': typeof AppReportsRoute
+  '/_app/settings': typeof AppSettingsRoute
   '/_app/tags': typeof AppTagsRoute
   '/_app/transactions': typeof AppTransactionsRoute
 }
@@ -135,6 +144,7 @@ export interface FileRouteTypes {
     | '/onboarding'
     | '/reminders'
     | '/reports'
+    | '/settings'
     | '/tags'
     | '/transactions'
   fileRoutesByTo: FileRoutesByTo
@@ -148,6 +158,7 @@ export interface FileRouteTypes {
     | '/onboarding'
     | '/reminders'
     | '/reports'
+    | '/settings'
     | '/tags'
     | '/transactions'
   id:
@@ -162,6 +173,7 @@ export interface FileRouteTypes {
     | '/_app/onboarding'
     | '/_app/reminders'
     | '/_app/reports'
+    | '/_app/settings'
     | '/_app/tags'
     | '/_app/transactions'
   fileRoutesById: FileRoutesById
@@ -207,6 +219,13 @@ declare module '@tanstack/react-router' {
       path: '/tags'
       fullPath: '/tags'
       preLoaderRoute: typeof AppTagsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/settings': {
+      id: '/_app/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof AppSettingsRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/reports': {
@@ -269,6 +288,7 @@ interface AppRouteChildren {
   AppOnboardingRoute: typeof AppOnboardingRoute
   AppRemindersRoute: typeof AppRemindersRoute
   AppReportsRoute: typeof AppReportsRoute
+  AppSettingsRoute: typeof AppSettingsRoute
   AppTagsRoute: typeof AppTagsRoute
   AppTransactionsRoute: typeof AppTransactionsRoute
 }
@@ -281,6 +301,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppOnboardingRoute: AppOnboardingRoute,
   AppRemindersRoute: AppRemindersRoute,
   AppReportsRoute: AppReportsRoute,
+  AppSettingsRoute: AppSettingsRoute,
   AppTagsRoute: AppTagsRoute,
   AppTransactionsRoute: AppTransactionsRoute,
 }
@@ -295,12 +316,3 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { createStart } from '@tanstack/react-start'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-  }
-}
