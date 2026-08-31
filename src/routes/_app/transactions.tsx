@@ -4,10 +4,11 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { formatMoney } from "@/lib/format";
 import { toast } from "sonner";
-import { Plus, Trash2, X, Upload, FileSpreadsheet, Pencil, Search, Filter, Sparkles, Share2, Receipt, Briefcase, CheckCircle2 } from "lucide-react";
+import { Plus, Trash2, X, Upload, FileSpreadsheet, Pencil, Search, Filter, Sparkles, Share2, Receipt, Briefcase, CheckCircle2, Camera, ImageIcon, Loader2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import * as XLSX from "xlsx";
 import { parseBankOrUpiReceipt } from "@/lib/upi-receipt-parser";
+import Tesseract from "tesseract.js";
 
 export const Route = createFileRoute("/_app/transactions")({
   component: Transactions,
@@ -15,6 +16,7 @@ export const Route = createFileRoute("/_app/transactions")({
     new: s.new === "1" ? "1" : undefined,
     share_text: typeof s.share_text === "string" ? s.share_text : typeof s.text === "string" ? (s.text as string) : undefined,
     share_title: typeof s.share_title === "string" ? s.share_title : typeof s.title === "string" ? (s.title as string) : undefined,
+    shared_receipt: typeof s.shared_receipt === "string" ? (s.shared_receipt as string) : undefined,
   }),
 });
 
@@ -29,7 +31,7 @@ function Transactions() {
   const [members, setMembers] = useState<any[]>([]);
   const [clients, setClients] = useState<any[]>([]);
   const [open, setOpen] = useState(search.new === "1");
-  const [scanOpen, setScanOpen] = useState(!!search.share_text || !!search.share_title);
+  const [scanOpen, setScanOpen] = useState(!!search.share_text || !!search.share_title || !!search.shared_receipt);
   const [initialSharedText, setInitialSharedText] = useState(search.share_text || search.share_title || "");
   const [editTx, setEditTx] = useState<Tx | null>(null);
   const [importOpen, setImportOpen] = useState(false);
@@ -813,6 +815,54 @@ function ReceiptParserDialog({
   const [toAccountId, setToAccountId] = useState(accounts[1]?.id || accounts[0]?.id || "");
   const [matchedClientId, setMatchedClientId] = useState<string>("");
   const [loading, setLoading] = useState(false);
+  const [ocrLoading, setOcrLoading] = useState(false);
+  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Process Image with OCR
+  const processImageFile = async (file: Blob | File) => {
+    try {
+      setOcrLoading(true);
+      const url = URL.createObjectURL(file);
+      setPreviewImageUrl(url);
+      
+      const { data } = await Tesseract.recognize(file, "eng", {
+        logger: (m) => console.log("OCR:", m),
+      });
+
+      const extractedText = data.text || "";
+      if (extractedText.trim()) {
+        setText(extractedText);
+        toast.success("Receipt screenshot text extracted!");
+      } else {
+        toast.error("Could not read text from image. Please enter details manually.");
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Failed to scan image");
+    } finally {
+      setOcrLoading(false);
+    }
+  };
+
+  // Check if an image was shared via Service Worker Web Share Target
+  useEffect(() => {
+    if (typeof window === "undefined" || !("caches" in window)) return;
+    (async () => {
+      try {
+        const cache = await caches.open("receipt-shares-v1");
+        const match = await cache.match("latest-shared-receipt");
+        if (match) {
+          const blob = await match.blob();
+          await cache.delete("latest-shared-receipt");
+          if (blob && blob.size > 0) {
+            await processImageFile(blob);
+          }
+        }
+      } catch (e) {
+        console.warn("Could not retrieve shared receipt image:", e);
+      }
+    })();
+  }, []);
 
   // Parse text whenever changed
   useEffect(() => {
@@ -850,7 +900,6 @@ function ReceiptParserDialog({
     );
 
     if (matchedFamilyMember) {
-      // Find recipient's account in family
       const memberAcc = accounts.find((a) => a.user_id === matchedFamilyMember.id);
       if (memberAcc) setToAccountId(memberAcc.id);
       setType("transfer");
@@ -973,13 +1022,53 @@ function ReceiptParserDialog({
             </div>
             <div>
               <h2 className="font-display text-lg font-bold">Paste / Scan UPI & Bank Receipt</h2>
-              <p className="text-xs text-muted-foreground">Auto-detects Bank Account, Self-Pay, Amount & Note</p>
+              <p className="text-xs text-muted-foreground">Works with GPay, Super.money, PhonePe, Paytm & SMS</p>
             </div>
           </div>
           <button type="button" onClick={onClose} className="text-muted-foreground hover:text-foreground">
             <X className="h-5 w-5" />
           </button>
         </div>
+
+        {/* Upload Screenshot Option */}
+        <div className="flex items-center gap-2">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) processImageFile(file);
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="flex-1 inline-flex items-center justify-center gap-2 rounded-2xl border border-dashed border-primary/40 bg-primary/5 py-2.5 px-3 text-xs font-semibold text-primary hover:bg-primary/10 transition-colors"
+          >
+            <Camera className="h-4 w-4" /> 📸 Scan Screenshot from Gallery / Super.money
+          </button>
+        </div>
+
+        {ocrLoading && (
+          <div className="rounded-2xl border border-primary/30 bg-primary/10 p-3 text-center text-xs font-semibold text-primary flex items-center justify-center gap-2 animate-pulse">
+            <Loader2 className="h-4 w-4 animate-spin" /> Scanning receipt screenshot with OCR…
+          </div>
+        )}
+
+        {previewImageUrl && !ocrLoading && (
+          <div className="relative rounded-2xl overflow-hidden border border-border max-h-32 bg-black/5 flex items-center justify-center">
+            <img src={previewImageUrl} alt="Receipt preview" className="max-h-32 object-contain" />
+            <button
+              type="button"
+              onClick={() => { setPreviewImageUrl(null); setText(""); }}
+              className="absolute top-2 right-2 rounded-full bg-black/60 p-1 text-white hover:bg-black"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
 
         {/* Textarea */}
         <label className="block">
@@ -990,7 +1079,7 @@ function ReceiptParserDialog({
             rows={3}
             value={text}
             onChange={(e) => setText(e.target.value)}
-            placeholder="e.g. Paid ₹450 to Swiggy on Google Pay (UPI Ref: 482910394812)... or 'Transferred ₹5,000 from HDFC XX1234 to SBI XX5678'"
+            placeholder="e.g. Paid ₹450 to Swiggy on Google Pay (UPI Ref: 482910394812)... or 'Transferred ₹5,000 to Priya Ramesh'"
             className="w-full rounded-2xl border border-input bg-background p-3 text-xs outline-none focus:border-primary font-mono"
             autoFocus
           />
