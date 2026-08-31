@@ -96,6 +96,7 @@ CREATE TABLE IF NOT EXISTS public.transactions (
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   family_id UUID NOT NULL REFERENCES public.families(id) ON DELETE CASCADE,
   account_id UUID REFERENCES public.accounts(id) ON DELETE SET NULL,
+  to_account_id UUID REFERENCES public.accounts(id) ON DELETE SET NULL,
   tag_id UUID REFERENCES public.tags(id) ON DELETE SET NULL,
   type public.transaction_type NOT NULL,
   amount NUMERIC(14,2) NOT NULL CHECK (amount >= 0),
@@ -103,6 +104,7 @@ CREATE TABLE IF NOT EXISTS public.transactions (
   note TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS to_account_id UUID REFERENCES public.accounts(id) ON DELETE SET NULL;
 
 -- Loans
 CREATE TABLE IF NOT EXISTS public.loans (
@@ -482,6 +484,11 @@ BEGIN
         UPDATE public.accounts SET balance = balance - OLD.amount WHERE id = OLD.account_id;
       ELSIF OLD.type = 'expense' THEN
         UPDATE public.accounts SET balance = balance + OLD.amount WHERE id = OLD.account_id;
+      ELSIF OLD.type = 'transfer' THEN
+        UPDATE public.accounts SET balance = balance + OLD.amount WHERE id = OLD.account_id;
+        IF OLD.to_account_id IS NOT NULL THEN
+          UPDATE public.accounts SET balance = balance - OLD.amount WHERE id = OLD.to_account_id;
+        END IF;
       END IF;
     END IF;
   END IF;
@@ -493,6 +500,11 @@ BEGIN
         UPDATE public.accounts SET balance = balance + NEW.amount WHERE id = NEW.account_id;
       ELSIF NEW.type = 'expense' THEN
         UPDATE public.accounts SET balance = balance - NEW.amount WHERE id = NEW.account_id;
+      ELSIF NEW.type = 'transfer' THEN
+        UPDATE public.accounts SET balance = balance - NEW.amount WHERE id = NEW.account_id;
+        IF NEW.to_account_id IS NOT NULL THEN
+          UPDATE public.accounts SET balance = balance + NEW.amount WHERE id = NEW.to_account_id;
+        END IF;
       END IF;
     END IF;
   END IF;

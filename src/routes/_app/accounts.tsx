@@ -752,10 +752,11 @@ function ConnectBankDialog({
 }
 
 function TransferDialog({ accounts, onClose, onSaved }: { accounts: any[]; onClose: () => void; onSaved: () => void }) {
+  const { user, profile } = useAuth();
   const [fromId, setFromId] = useState(accounts[0]?.id || "");
   const [toId, setToId] = useState(accounts[1]?.id || "");
   const [amount, setAmount] = useState("");
-  const [note, setNote] = useState("Transfer");
+  const [note, setNote] = useState("Internal Transfer");
   const [loading, setLoading] = useState(false);
 
   const transfer = async (e: React.FormEvent) => {
@@ -772,22 +773,36 @@ function TransferDialog({ accounts, onClose, onSaved }: { accounts: any[]; onClo
 
     const fromAcc = accounts.find((a) => a.id === fromId);
     const toAcc = accounts.find((a) => a.id === toId);
-    if (!fromAcc || !toAcc) return;
+    if (!fromAcc || !toAcc || !profile?.family_id || !user) return;
 
     setLoading(true);
-    const [resFrom, resTo] = await Promise.all([
-      supabase.from("accounts").update({ balance: Number(fromAcc.balance) - val }).eq("id", fromId),
-      supabase.from("accounts").update({ balance: Number(toAcc.balance) + val }).eq("id", toId),
-    ]);
-    setLoading(false);
+    try {
+      const [resFrom, resTo, resTx] = await Promise.all([
+        supabase.from("accounts").update({ balance: Number(fromAcc.balance) - val }).eq("id", fromId),
+        supabase.from("accounts").update({ balance: Number(toAcc.balance) + val }).eq("id", toId),
+        supabase.from("transactions").insert({
+          family_id: profile.family_id,
+          user_id: user.id,
+          account_id: fromId,
+          to_account_id: toId,
+          type: "transfer" as any,
+          amount: val,
+          occurred_on: new Date().toISOString().slice(0, 10),
+          note: note.trim() || "Inter-account Transfer",
+        }),
+      ]);
 
-    if (resFrom.error || resTo.error) {
-      toast.error(resFrom.error?.message || resTo.error?.message || "Transfer failed");
-      return;
+      if (resFrom.error || resTo.error) {
+        throw resFrom.error || resTo.error;
+      }
+
+      toast.success(`Transferred ${formatMoney(val)} from ${fromAcc.name} to ${toAcc.name}`);
+      onSaved();
+    } catch (err: any) {
+      toast.error(err.message || "Transfer failed");
+    } finally {
+      setLoading(false);
     }
-
-    toast.success(`Transferred ${formatMoney(val)} from ${fromAcc.name} to ${toAcc.name}`);
-    onSaved();
   };
 
   return (

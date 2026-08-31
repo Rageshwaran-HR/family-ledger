@@ -18,7 +18,7 @@ export const Route = createFileRoute("/_app/transactions")({
   }),
 });
 
-interface Tx { id: string; amount: number; type: "income" | "expense"; occurred_on: string; note: string | null; user_id: string; tag_id: string | null; account_id: string | null; }
+interface Tx { id: string; amount: number; type: "income" | "expense" | "transfer"; occurred_on: string; note: string | null; user_id: string; tag_id: string | null; account_id: string | null; to_account_id?: string | null; }
 
 function Transactions() {
   const search = Route.useSearch();
@@ -33,7 +33,7 @@ function Transactions() {
   const [initialSharedText, setInitialSharedText] = useState(search.share_text || search.share_title || "");
   const [editTx, setEditTx] = useState<Tx | null>(null);
   const [importOpen, setImportOpen] = useState(false);
-  const [filter, setFilter] = useState<"all" | "income" | "expense">("all");
+  const [filter, setFilter] = useState<"all" | "income" | "expense" | "transfer">("all");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [accountFilter, setAccountFilter] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
@@ -81,6 +81,7 @@ function Transactions() {
       "Amount": Number(t.amount),
       "Category": t.tag_id ? tagMap[t.tag_id]?.name || "" : "Uncategorized",
       "Account": t.account_id ? accountMap[t.account_id]?.name || "" : "",
+      "To Account": t.to_account_id ? accountMap[t.to_account_id]?.name || "" : "",
       "Member": memberMap[t.user_id]?.full_name || "",
       "Note": t.note || "",
     }));
@@ -95,7 +96,7 @@ function Transactions() {
     return txs.filter((t) => {
       if (filter !== "all" && t.type !== filter) return false;
       if (categoryFilter !== "all" && t.tag_id !== categoryFilter) return false;
-      if (accountFilter !== "all" && t.account_id !== accountFilter) return false;
+      if (accountFilter !== "all" && t.account_id !== accountFilter && t.to_account_id !== accountFilter) return false;
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
         const note = (t.note || "").toLowerCase();
@@ -119,7 +120,7 @@ function Transactions() {
       <header className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
         <div>
           <h1 className="font-display text-3xl font-bold">Transactions</h1>
-          <p className="text-muted-foreground text-sm">All family income & expenses.</p>
+          <p className="text-muted-foreground text-sm">All family income, expenses & internal transfers.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <button onClick={() => setScanOpen(true)} className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 rounded-full border border-primary/40 bg-primary/10 px-3.5 py-2 text-xs font-semibold text-primary hover:bg-primary/20 transition-colors">
@@ -140,8 +141,14 @@ function Transactions() {
       {/* Filters bar */}
       <div className="flex flex-col sm:flex-row sm:items-center gap-2.5">
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
-          {(["all", "income", "expense"] as const).map((f) => (
-            <button key={f} onClick={() => setFilter(f)} className={`rounded-full px-3.5 py-1.5 text-xs font-semibold capitalize whitespace-nowrap ${filter === f ? "bg-primary text-primary-foreground" : "bg-card border border-border hover:bg-secondary"}`}>{f}</button>
+          {(["all", "income", "expense", "transfer"] as const).map((f) => (
+            <button key={f} onClick={() => setFilter(f)} className={`rounded-full px-3.5 py-1.5 text-xs font-semibold capitalize whitespace-nowrap ${
+              filter === f
+                ? f === "transfer" ? "bg-blue-600 text-white" : "bg-primary text-primary-foreground"
+                : "bg-card border border-border hover:bg-secondary"
+            }`}>
+              {f === "transfer" ? "🔄 Transfers" : f}
+            </button>
           ))}
         </div>
 
@@ -183,44 +190,71 @@ function Transactions() {
           </div>
         ) : (
           <ul className="divide-y divide-border">
-            {filtered.map((t) => (
-              <li key={t.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 py-3.5 hover:bg-secondary/30 transition-colors">
-                <div className="flex min-w-0 items-start sm:items-center gap-3">
-                  <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl text-white text-base font-bold" style={{ background: t.type === "income" ? "var(--success)" : "var(--primary)" }}>
-                    {t.type === "income" ? "+" : "−"}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      {t.tag_id && (
-                        <span className="rounded-full px-2 py-0.5 text-[11px] font-medium" style={{ background: (tagMap[t.tag_id]?.color || "#a98467") + "33", color: tagMap[t.tag_id]?.color || "#a98467" }}>
-                          {tagMap[t.tag_id]?.name || "Tag"}
-                        </span>
-                      )}
-                      {t.account_id && accountMap[t.account_id] && (
-                        <span className="rounded-full bg-secondary px-2 py-0.5 text-[11px] text-muted-foreground">
-                          {accountMap[t.account_id].name}
-                        </span>
-                      )}
-                      <span className="truncate text-xs sm:text-sm text-muted-foreground font-normal">{t.note || "No note"}</span>
+            {filtered.map((t) => {
+              const fromAcc = t.account_id ? accountMap[t.account_id] : null;
+              const toAcc = t.to_account_id ? accountMap[t.to_account_id] : null;
+              const isTransfer = t.type === "transfer";
+              const isSelf = isTransfer && fromAcc && toAcc && fromAcc.user_id === toAcc.user_id;
+
+              return (
+                <li key={t.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 py-3.5 hover:bg-secondary/30 transition-colors">
+                  <div className="flex min-w-0 items-start sm:items-center gap-3">
+                    <div
+                      className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl text-white text-base font-bold ${
+                        isTransfer ? "bg-blue-600" : t.type === "income" ? "bg-success" : "bg-primary"
+                      }`}
+                    >
+                      {isTransfer ? "🔄" : t.type === "income" ? "+" : "−"}
                     </div>
-                    <div className="text-[11px] text-muted-foreground mt-0.5">{memberMap[t.user_id]?.full_name || "Member"} · {new Date(t.occurred_on).toLocaleDateString()}</div>
-                  </div>
-                </div>
-                <div className="flex items-center justify-between sm:justify-end gap-3 pl-12 sm:pl-0">
-                  <div className={`font-semibold text-sm sm:text-base ${t.type === "income" ? "text-success" : ""}`}>{t.type === "income" ? "+" : "−"}{formatMoney(Number(t.amount))}</div>
-                  {(t.user_id === user?.id || isAdmin) && (
-                    <div className="flex items-center gap-1">
-                      <button onClick={() => { setEditTx(t); setOpen(true); }} title="Edit" className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-primary">
-                        <Pencil className="h-3.5 w-3.5" />
-                      </button>
-                      <button onClick={() => del(t.id)} title="Delete" className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-destructive">
-                        <Trash2 className="h-4 w-4" />
-                      </button>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {isTransfer ? (
+                          <span className="rounded-full bg-blue-500/20 text-blue-700 dark:text-blue-300 px-2 py-0.5 text-[11px] font-semibold">
+                            {isSelf ? "Self Transfer" : "Family Transfer"}
+                          </span>
+                        ) : t.tag_id && (
+                          <span className="rounded-full px-2 py-0.5 text-[11px] font-medium" style={{ background: (tagMap[t.tag_id]?.color || "#a98467") + "33", color: tagMap[t.tag_id]?.color || "#a98467" }}>
+                            {tagMap[t.tag_id]?.name || "Tag"}
+                          </span>
+                        )}
+                        {isTransfer ? (
+                          <span className="text-xs font-semibold text-foreground">
+                            {fromAcc?.name || "Account"} ({memberMap[fromAcc?.user_id]?.full_name?.split(" ")[0] || "User"}) ➔ {toAcc?.name || "Account"} ({memberMap[toAcc?.user_id]?.full_name?.split(" ")[0] || "User"})
+                          </span>
+                        ) : (
+                          t.account_id && accountMap[t.account_id] && (
+                            <span className="rounded-full bg-secondary px-2 py-0.5 text-[11px] text-muted-foreground">
+                              {accountMap[t.account_id].name}
+                            </span>
+                          )
+                        )}
+                        <span className="truncate text-xs sm:text-sm text-muted-foreground font-normal">{t.note || (isTransfer ? "Account Transfer" : "No note")}</span>
+                      </div>
+                      <div className="text-[11px] text-muted-foreground mt-0.5">
+                        {memberMap[t.user_id]?.full_name || "Member"} · {new Date(t.occurred_on).toLocaleDateString()}
+                      </div>
                     </div>
-                  )}
-                </div>
-              </li>
-            ))}
+                  </div>
+                  <div className="flex items-center justify-between sm:justify-end gap-3 pl-12 sm:pl-0">
+                    <div className={`font-semibold text-sm sm:text-base ${
+                      isTransfer ? "text-blue-600 dark:text-blue-400" : t.type === "income" ? "text-success" : ""
+                    }`}>
+                      {isTransfer ? "🔄 " : t.type === "income" ? "+" : "−"}{formatMoney(Number(t.amount))}
+                    </div>
+                    {(t.user_id === user?.id || isAdmin) && (
+                      <div className="flex items-center gap-1">
+                        <button onClick={() => { setEditTx(t); setOpen(true); }} title="Edit" className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-primary">
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                        <button onClick={() => del(t.id)} title="Delete" className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-destructive">
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>
@@ -255,11 +289,12 @@ function Transactions() {
 
 function TxDialog({ tx, onClose, onSaved, tags, accounts }: { tx?: Tx | null; onClose: () => void; onSaved: () => void; tags: any[]; accounts: any[] }) {
   const { profile, user } = useAuth();
-  const [type, setType] = useState<"expense" | "income">(tx?.type ?? "expense");
+  const [type, setType] = useState<"expense" | "income" | "transfer">(tx?.type ?? "expense");
   const [amount, setAmount] = useState(tx ? String(tx.amount) : "");
   const [date, setDate] = useState(tx?.occurred_on ?? new Date().toISOString().slice(0, 10));
   const [tagId, setTagId] = useState<string>(tx?.tag_id ?? tags[0]?.id ?? "");
   const [accountId, setAccountId] = useState<string>(tx?.account_id ?? accounts[0]?.id ?? "");
+  const [toAccountId, setToAccountId] = useState<string>(tx?.to_account_id ?? accounts[1]?.id ?? accounts[0]?.id ?? "");
   const [note, setNote] = useState(tx?.note ?? "");
   const [loading, setLoading] = useState(false);
 
@@ -275,6 +310,10 @@ function TxDialog({ tx, onClose, onSaved, tags, accounts }: { tx?: Tx | null; on
       toast.error("Please select a bank account or cash wallet for this transaction.");
       return;
     }
+    if (type === "transfer" && accountId === toAccountId) {
+      toast.error("Source and destination accounts must be different.");
+      return;
+    }
     if (!user) return;
     setLoading(true);
 
@@ -283,8 +322,9 @@ function TxDialog({ tx, onClose, onSaved, tags, accounts }: { tx?: Tx | null; on
         type,
         amount: Number(amount),
         occurred_on: date,
-        tag_id: tagId || null,
+        tag_id: type === "transfer" ? null : tagId || null,
         account_id: accountId,
+        to_account_id: type === "transfer" ? toAccountId : null,
         note: note.trim() || null,
       }).eq("id", tx.id);
       setLoading(false);
@@ -297,13 +337,14 @@ function TxDialog({ tx, onClose, onSaved, tags, accounts }: { tx?: Tx | null; on
         type,
         amount: Number(amount),
         occurred_on: date,
-        tag_id: tagId || null,
+        tag_id: type === "transfer" ? null : tagId || null,
         account_id: accountId,
-        note: note.trim() || null,
+        to_account_id: type === "transfer" ? toAccountId : null,
+        note: note.trim() || (type === "transfer" ? "Inter-account Transfer" : null),
       });
       setLoading(false);
       if (error) { toast.error(error.message); return; }
-      toast.success("Transaction added");
+      toast.success(type === "transfer" ? "Transfer recorded" : "Transaction added");
     }
     onSaved();
   };
@@ -317,29 +358,58 @@ function TxDialog({ tx, onClose, onSaved, tags, accounts }: { tx?: Tx | null; on
           <button type="button" onClick={onClose} className="grid h-8 w-8 place-items-center rounded-lg hover:bg-secondary"><X className="h-4 w-4" /></button>
         </div>
 
-        <div className="grid grid-cols-2 gap-2">
-          <button type="button" onClick={() => setType("expense")} className={`rounded-xl py-2.5 text-sm font-semibold transition-colors ${type === "expense" ? "bg-primary text-primary-foreground" : "bg-secondary"}`}>Expense</button>
-          <button type="button" onClick={() => setType("income")} className={`rounded-xl py-2.5 text-sm font-semibold transition-colors ${type === "income" ? "bg-success text-success-foreground" : "bg-secondary"}`}>Income</button>
+        <div className="grid grid-cols-3 gap-2">
+          <button type="button" onClick={() => setType("expense")} className={`rounded-xl py-2 text-xs sm:text-sm font-semibold transition-colors ${type === "expense" ? "bg-primary text-primary-foreground" : "bg-secondary"}`}>Expense</button>
+          <button type="button" onClick={() => setType("income")} className={`rounded-xl py-2 text-xs sm:text-sm font-semibold transition-colors ${type === "income" ? "bg-success text-success-foreground" : "bg-secondary"}`}>Income</button>
+          <button type="button" onClick={() => setType("transfer")} className={`rounded-xl py-2 text-xs sm:text-sm font-semibold transition-colors ${type === "transfer" ? "bg-blue-600 text-white" : "bg-secondary"}`}>🔄 Transfer</button>
         </div>
 
         <div className="mt-4 space-y-3">
-          <Input label="Amount" type="number" step="0.01" min="0" value={amount} onChange={setAmount} required autoFocus />
+          <Input label="Amount (₹)" type="number" step="0.01" min="0" value={amount} onChange={setAmount} required autoFocus />
           <Input label="Date" type="date" value={date} onChange={setDate} required />
-          <Select label="Category" value={tagId} onChange={setTagId} options={[{ value: "", label: "None" }, ...tags.map((t) => ({ value: t.id, label: t.name }))]} />
           
-          {accounts.length === 0 ? (
-            <div className="rounded-2xl border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive">
-              <strong>No accounts found:</strong> Please go to the <strong>Accounts</strong> tab and create a Bank Account or Cash Wallet first.
+          {type === "transfer" ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Select
+                label="From Account *"
+                value={accountId}
+                onChange={setAccountId}
+                required
+                options={accounts.map((a) => ({
+                  value: a.id,
+                  label: `${a.name} (${formatMoney(Number(a.balance))})`,
+                }))}
+              />
+              <Select
+                label="To Account *"
+                value={toAccountId}
+                onChange={setToAccountId}
+                required
+                options={accounts.map((a) => ({
+                  value: a.id,
+                  label: `${a.name} (${formatMoney(Number(a.balance))})`,
+                }))}
+              />
             </div>
           ) : (
-            <Select label="Bank / Wallet Account *" value={accountId} onChange={setAccountId} required options={accounts.map((a) => ({ value: a.id, label: `${a.name} (${formatMoney(Number(a.balance))})` }))} />
+            <>
+              <Select label="Category" value={tagId} onChange={setTagId} options={[{ value: "", label: "None" }, ...tags.map((t) => ({ value: t.id, label: t.name }))]} />
+              
+              {accounts.length === 0 ? (
+                <div className="rounded-2xl border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive">
+                  <strong>No accounts found:</strong> Please go to the <strong>Accounts</strong> tab and create a Bank Account or Cash Wallet first.
+                </div>
+              ) : (
+                <Select label="Bank / Wallet Account *" value={accountId} onChange={setAccountId} required options={accounts.map((a) => ({ value: a.id, label: `${a.name} (${formatMoney(Number(a.balance))})` }))} />
+              )}
+            </>
           )}
 
-          <Input label="Note (optional)" value={note} onChange={setNote} placeholder="Grocery store, coffee, etc." />
+          <Input label="Note (optional)" value={note} onChange={setNote} placeholder={type === "transfer" ? "e.g. Sent to Priya for groceries" : "Grocery store, coffee, etc."} />
         </div>
 
-        <button disabled={loading || accounts.length === 0} className="mt-5 w-full rounded-full px-5 py-3 font-semibold text-primary-foreground disabled:opacity-60" style={{ background: "var(--gradient-warm)" }}>
-          {loading ? "Saving…" : isEdit ? "Update transaction" : "Save transaction"}
+        <button disabled={loading} className="mt-5 w-full rounded-full px-5 py-3 font-semibold text-primary-foreground disabled:opacity-60" style={{ background: "var(--gradient-warm)" }}>
+          {loading ? "Saving…" : isEdit ? "Update transaction" : type === "transfer" ? "Record Transfer" : "Add transaction"}
         </button>
       </motion.form>
     </motion.div>
@@ -817,9 +887,19 @@ function ReceiptParserDialog({
         if (!fromAcc || !toAcc) throw new Error("Accounts not found");
 
         const val = Number(amount);
-        const [resFrom, resTo] = await Promise.all([
+        const [resFrom, resTo, resTx] = await Promise.all([
           supabase.from("accounts").update({ balance: Number(fromAcc.balance) - val }).eq("id", accountId),
           supabase.from("accounts").update({ balance: Number(toAcc.balance) + val }).eq("id", toAccountId),
+          supabase.from("transactions").insert({
+            family_id: profile.family_id,
+            user_id: user.id,
+            account_id: accountId,
+            to_account_id: toAccountId,
+            type: "transfer" as any,
+            amount: val,
+            occurred_on: date,
+            note: note.trim() || "Inter-account Transfer",
+          }),
         ]);
         if (resFrom.error || resTo.error) throw resFrom.error || resTo.error;
 
