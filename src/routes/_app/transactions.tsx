@@ -242,7 +242,11 @@ function TxDialog({ tx, onClose, onSaved, tags, accounts }: { tx?: Tx | null; on
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!profile?.family_id || !user) return;
+    if (!profile?.family_id) {
+      toast.error("Please set up your household first in the Family tab.");
+      return;
+    }
+    if (!user) return;
     setLoading(true);
 
     if (isEdit) {

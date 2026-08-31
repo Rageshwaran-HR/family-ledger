@@ -405,7 +405,11 @@ function BusinessDialog({ business, onClose, onSaved }: { business?: Business | 
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!profile?.family_id || !user || !name.trim()) return;
+    if (!profile?.family_id) {
+      toast.error("Please set up your household first in the Family tab.");
+      return;
+    }
+    if (!user || !name.trim()) return;
     setSaving(true);
 
     if (isEdit) {

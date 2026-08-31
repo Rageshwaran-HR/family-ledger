@@ -159,6 +159,12 @@ function AppShell() {
         <div className="hidden md:flex items-center justify-end gap-2 border-b border-border bg-card/50 px-8 py-3">
           <NotifBell count={unreadCount} onClick={() => setNotifOpen(true)} />
         </div>
+        {!profile?.family_id && (
+          <div className="bg-amber-500/15 border-b border-amber-500/30 px-4 py-2.5 text-center text-xs sm:text-sm text-amber-900 dark:text-amber-200 flex flex-wrap items-center justify-center gap-2">
+            <span>🌿 <strong>Household not set up yet:</strong> Create your family group to start logging transactions, accounts, and businesses.</span>
+            <Link to="/family" className="underline font-bold hover:opacity-80 whitespace-nowrap">Set up household ➔</Link>
+          </div>
+        )}
         <motion.div key={path} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}
           className="mx-auto max-w-6xl px-4 py-6 md:px-8 md:py-10">
           <Outlet />

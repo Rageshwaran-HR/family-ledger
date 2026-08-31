@@ -186,7 +186,11 @@ function LoanDialog({ loan, onClose, onSaved }: { loan?: Loan | null; onClose: (
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!profile?.family_id || !user) return;
+    if (!profile?.family_id) {
+      toast.error("Please set up your household first in the Family tab.");
+      return;
+    }
+    if (!user) return;
     setLoading(true);
     const p = Number(principal);
 
