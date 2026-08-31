@@ -4,13 +4,18 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { formatMoney } from "@/lib/format";
 import { toast } from "sonner";
-import { Plus, Trash2, X, Upload, FileSpreadsheet, Pencil, Search, Filter } from "lucide-react";
+import { Plus, Trash2, X, Upload, FileSpreadsheet, Pencil, Search, Filter, Sparkles, Share2, Receipt, Briefcase, CheckCircle2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import * as XLSX from "xlsx";
+import { parseBankOrUpiReceipt } from "@/lib/upi-receipt-parser";
 
 export const Route = createFileRoute("/_app/transactions")({
   component: Transactions,
-  validateSearch: (s: Record<string, unknown>) => ({ new: s.new === "1" ? "1" : undefined }),
+  validateSearch: (s: Record<string, unknown>) => ({
+    new: s.new === "1" ? "1" : undefined,
+    share_text: typeof s.share_text === "string" ? s.share_text : typeof s.text === "string" ? (s.text as string) : undefined,
+    share_title: typeof s.share_title === "string" ? s.share_title : typeof s.title === "string" ? (s.title as string) : undefined,
+  }),
 });
 
 interface Tx { id: string; amount: number; type: "income" | "expense"; occurred_on: string; note: string | null; user_id: string; tag_id: string | null; account_id: string | null; }
@@ -22,7 +27,10 @@ function Transactions() {
   const [tags, setTags] = useState<any[]>([]);
   const [accounts, setAccounts] = useState<any[]>([]);
   const [members, setMembers] = useState<any[]>([]);
+  const [clients, setClients] = useState<any[]>([]);
   const [open, setOpen] = useState(search.new === "1");
+  const [scanOpen, setScanOpen] = useState(!!search.share_text || !!search.share_title);
+  const [initialSharedText, setInitialSharedText] = useState(search.share_text || search.share_title || "");
   const [editTx, setEditTx] = useState<Tx | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [filter, setFilter] = useState<"all" | "income" | "expense">("all");
@@ -32,16 +40,18 @@ function Transactions() {
 
   const load = async () => {
     if (!profile?.family_id) return;
-    const [t, g, a, m] = await Promise.all([
+    const [t, g, a, m, c] = await Promise.all([
       supabase.from("transactions").select("*").order("occurred_on", { ascending: false }),
       supabase.from("tags").select("*"),
       supabase.from("accounts").select("*"),
       supabase.from("profiles").select("id,full_name").eq("family_id", profile.family_id),
+      supabase.from("business_clients").select("id,name,business_id,monthly_amount,is_active").eq("family_id", profile.family_id),
     ]);
     setTxs((t.data as Tx[]) ?? []);
     setTags(g.data ?? []);
     setAccounts(a.data ?? []);
     setMembers(m.data ?? []);
+    setClients(c.data ?? []);
   };
 
   useEffect(() => {
@@ -112,6 +122,9 @@ function Transactions() {
           <p className="text-muted-foreground text-sm">All family income & expenses.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <button onClick={() => setScanOpen(true)} className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 rounded-full border border-primary/40 bg-primary/10 px-3.5 py-2 text-xs font-semibold text-primary hover:bg-primary/20 transition-colors">
+            <Sparkles className="h-3.5 w-3.5" /> ⚡ Scan / Paste Receipt
+          </button>
           <button onClick={exportExcel} className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 rounded-full bg-card border border-border px-3.5 py-2 text-xs font-semibold hover:bg-secondary">
             <FileSpreadsheet className="h-3.5 w-3.5" /> Export
           </button>
@@ -220,6 +233,18 @@ function Transactions() {
             onSaved={() => { load(); setOpen(false); setEditTx(null); }}
             tags={tags}
             accounts={accounts}
+          />
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {scanOpen && (
+          <ReceiptParserDialog
+            initialText={initialSharedText}
+            tags={tags}
+            accounts={accounts}
+            clients={clients}
+            onClose={() => { setScanOpen(false); setInitialSharedText(""); }}
+            onSaved={() => { load(); setScanOpen(false); setInitialSharedText(""); }}
           />
         )}
       </AnimatePresence>
@@ -685,3 +710,227 @@ function ImportDialog({ onClose, onImported, tags, accounts }: { onClose: () => 
     </motion.div>
   );
 }
+
+/**
+ * Universal UPI & Bank Receipt / SMS Parser Modal (Zero API, Works for any Banking/UPI App)
+ */
+function ReceiptParserDialog({
+  initialText = "",
+  tags,
+  accounts,
+  clients,
+  onClose,
+  onSaved,
+}: {
+  initialText?: string;
+  tags: any[];
+  accounts: any[];
+  clients: any[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const { user, profile } = useAuth();
+  const [text, setText] = useState(initialText);
+  const [amount, setAmount] = useState("");
+  const [type, setType] = useState<"expense" | "income">("expense");
+  const [note, setNote] = useState("");
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [tagId, setTagId] = useState("");
+  const [accountId, setAccountId] = useState(accounts[0]?.id || "");
+  const [matchedClientId, setMatchedClientId] = useState<string>("");
+  const [loading, setLoading] = useState(false);
+
+  // Parse text whenever changed
+  useEffect(() => {
+    if (!text.trim()) return;
+    const p = parseBankOrUpiReceipt(text);
+    if (p.amount !== null) setAmount(String(p.amount));
+    setType(p.type);
+    setNote(p.merchantOrSender + (p.upiRef ? ` (Ref: ${p.upiRef})` : ""));
+    setDate(p.date);
+
+    // Auto-match tag
+    const matchedTag = tags.find((t) => t.name.toLowerCase() === p.categorySuggestion.toLowerCase());
+    if (matchedTag) setTagId(matchedTag.id);
+    else if (tags[0]) setTagId(tags[0].id);
+
+    // Auto-match account by mask
+    if (p.accountMask && accounts.length > 0) {
+      const matchAcc = accounts.find((a) => a.name.includes(p.accountMask!) || a.name.toLowerCase().includes(p.accountMask!));
+      if (matchAcc) setAccountId(matchAcc.id);
+    }
+
+    // Auto-match business client
+    if (p.type === "income" && clients.length > 0) {
+      const mClient = clients.find((c) =>
+        text.toLowerCase().includes(c.name.toLowerCase()) ||
+        p.merchantOrSender.toLowerCase().includes(c.name.toLowerCase())
+      );
+      if (mClient) setMatchedClientId(mClient.id);
+      else setMatchedClientId("");
+    }
+  }, [text, tags, accounts, clients]);
+
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!profile?.family_id || !user) return;
+    if (!amount || Number(amount) <= 0) {
+      toast.error("Please enter a valid amount");
+      return;
+    }
+    if (!accountId) {
+      toast.error("Please select a bank account or wallet");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      // If matched with business client, also record client payment
+      if (type === "income" && matchedClientId) {
+        const client = clients.find((c) => c.id === matchedClientId);
+        if (client) {
+          await supabase.from("client_payments").insert({
+            family_id: profile.family_id,
+            business_id: client.business_id,
+            client_id: client.id,
+            amount: Number(amount),
+            payment_date: date,
+            note: `UPI Receipt Sync: ${note}`,
+          });
+          toast.success(`Client ${client.name} payment recorded!`);
+        }
+      }
+
+      // Record transaction
+      const { error } = await supabase.from("transactions").insert({
+        family_id: profile.family_id,
+        user_id: user.id,
+        account_id: accountId,
+        tag_id: tagId || null,
+        type,
+        amount: Number(amount),
+        occurred_on: date,
+        note: note.trim() || null,
+      });
+
+      if (error) throw error;
+      toast.success("Receipt transaction recorded in ledger!");
+      onSaved();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to save");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={onClose}>
+      <motion.form initial={{ scale: 0.95 }} animate={{ scale: 1 }} onClick={(e) => e.stopPropagation()} onSubmit={save} className="w-full max-w-lg rounded-3xl border border-border bg-card p-6 shadow-[var(--shadow-elevated)] space-y-4 max-h-[92vh] overflow-y-auto">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="grid h-9 w-9 place-items-center rounded-xl bg-primary/10 text-primary">
+              <Sparkles className="h-5 w-5" />
+            </div>
+            <div>
+              <h2 className="font-display text-lg font-bold">Paste / Scan UPI & Bank Receipt</h2>
+              <p className="text-xs text-muted-foreground">Works with GPay, PhonePe, Paytm, SMS & Any Bank</p>
+            </div>
+          </div>
+          <button type="button" onClick={onClose} className="text-muted-foreground hover:text-foreground">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        {/* Textarea */}
+        <label className="block">
+          <span className="mb-1 block text-xs font-semibold text-foreground">
+            Paste Receipt Text or Bank SMS:
+          </span>
+          <textarea
+            rows={3}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder="e.g. Paid ₹450 to Swiggy on Google Pay (UPI Ref: 482910394812)... or paste HDFC/SBI bank debit SMS"
+            className="w-full rounded-2xl border border-input bg-background p-3 text-xs outline-none focus:border-primary font-mono"
+            autoFocus
+          />
+        </label>
+
+        {/* Live Extracted Fields */}
+        <div className="rounded-2xl border border-border/80 bg-secondary/30 p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Parsed Transaction Details</span>
+            <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${type === "income" ? "bg-emerald-500/20 text-emerald-700 dark:text-emerald-300" : "bg-primary/20 text-primary"}`}>
+              {type === "income" ? "Income / Credit" : "Expense / Debit"}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium text-muted-foreground">Type</span>
+              <select value={type} onChange={(e) => setType(e.target.value as any)} className="w-full rounded-xl border border-input bg-background px-3 py-2 text-xs">
+                <option value="expense">Expense</option>
+                <option value="income">Income</option>
+              </select>
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium text-muted-foreground">Amount (₹)</span>
+              <input type="number" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} className="w-full rounded-xl border border-input bg-background px-3 py-2 text-xs font-bold text-base" required />
+            </label>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium text-muted-foreground">Date</span>
+              <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-full rounded-xl border border-input bg-background px-3 py-2 text-xs" required />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium text-muted-foreground">Category Tag</span>
+              <select value={tagId} onChange={(e) => setTagId(e.target.value)} className="w-full rounded-xl border border-input bg-background px-3 py-2 text-xs">
+                <option value="">— Uncategorized —</option>
+                {tags.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+            </label>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium text-muted-foreground">Bank Account / Wallet</span>
+              <select value={accountId} onChange={(e) => setAccountId(e.target.value)} className="w-full rounded-xl border border-input bg-background px-3 py-2 text-xs">
+                {accounts.map((a) => <option key={a.id} value={a.id}>{a.name} ({formatMoney(Number(a.balance))})</option>)}
+              </select>
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium text-muted-foreground">Description / Note</span>
+              <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Swiggy Food, Petrol, etc." className="w-full rounded-xl border border-input bg-background px-3 py-2 text-xs" />
+            </label>
+          </div>
+
+          {/* Business Client Matching if Income */}
+          {type === "income" && clients.length > 0 && (
+            <div className="border-t border-border pt-2.5">
+              <label className="block">
+                <span className="mb-1 block text-xs font-semibold text-blue-600 dark:text-blue-400 flex items-center gap-1">
+                  <Briefcase className="h-3.5 w-3.5" /> Match Business Client (Auto-clears monthly plan)
+                </span>
+                <select value={matchedClientId} onChange={(e) => setMatchedClientId(e.target.value)} className="w-full rounded-xl border border-blue-500/30 bg-blue-50/50 dark:bg-blue-950/30 px-3 py-2 text-xs text-blue-900 dark:text-blue-200">
+                  <option value="">— Personal Income (Not a Client) —</option>
+                  {clients.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      👤 Client: {c.name} ({formatMoney(Number(c.monthly_amount))}/mo)
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          )}
+        </div>
+
+        <button disabled={loading} className="w-full rounded-full px-5 py-3 font-semibold text-primary-foreground disabled:opacity-60 shadow-[var(--shadow-soft)]" style={{ background: "var(--gradient-warm)" }}>
+          {loading ? "Recording…" : "Save Transaction to Ledger"}
+        </button>
+      </motion.form>
+    </motion.div>
+  );
+}
+
