@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { formatMoney, formatDate } from "@/lib/format";
 import { toast } from "sonner";
-import { Plus, X, CheckCircle2, Trash2, ChevronDown } from "lucide-react";
+import { Plus, X, CheckCircle2, Trash2, ChevronDown, Pencil } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 export const Route = createFileRoute("/_app/loans")({ component: Loans });
@@ -12,22 +12,28 @@ export const Route = createFileRoute("/_app/loans")({ component: Loans });
 interface Loan { id: string; name: string; principal: number; remaining_balance: number; interest_rate_monthly: number; tenure_months: number; start_date: string; status: "active" | "closed"; user_id: string; notes: string | null; }
 
 function Loans() {
-  const { profile, user } = useAuth();
+  const { profile, user, isAdmin } = useAuth();
   const [loans, setLoans] = useState<Loan[]>([]);
   const [payments, setPayments] = useState<any[]>([]);
   const [members, setMembers] = useState<any[]>([]);
+  const [accounts, setAccounts] = useState<any[]>([]);
   const [open, setOpen] = useState(false);
+  const [editingLoan, setEditingLoan] = useState<Loan | null>(null);
   const [paying, setPaying] = useState<Loan | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
 
   const load = async () => {
     if (!profile?.family_id) return;
-    const [l, p, m] = await Promise.all([
+    const [l, p, m, a] = await Promise.all([
       supabase.from("loans").select("*").order("created_at", { ascending: false }),
       supabase.from("loan_payments").select("*").order("paid_on", { ascending: false }),
       supabase.from("profiles").select("id,full_name").eq("family_id", profile.family_id),
+      supabase.from("accounts").select("*").order("name"),
     ]);
-    setLoans((l.data as Loan[]) ?? []); setPayments(p.data ?? []); setMembers(m.data ?? []);
+    setLoans((l.data as Loan[]) ?? []);
+    setPayments(p.data ?? []);
+    setMembers(m.data ?? []);
+    setAccounts(a.data ?? []);
   };
   useEffect(() => { load(); }, [profile?.family_id]);
 
@@ -52,7 +58,7 @@ function Loans() {
           <h1 className="font-display text-3xl font-bold">Loans</h1>
           <p className="text-muted-foreground">Track loans, interest and payments.</p>
         </div>
-        <button onClick={() => setOpen(true)} className="inline-flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold text-primary-foreground" style={{ background: "var(--gradient-warm)" }}>
+        <button onClick={() => { setEditingLoan(null); setOpen(true); }} className="inline-flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold text-primary-foreground" style={{ background: "var(--gradient-warm)" }}>
           <Plus className="h-4 w-4" /> New loan
         </button>
       </header>
@@ -71,19 +77,21 @@ function Loans() {
           const loanPays = payments.filter((p) => p.loan_id === l.id);
           const isOpen = expanded === l.id;
           return (
-            <motion.div key={l.id} layout className="rounded-3xl border border-border bg-card p-5 shadow-[var(--shadow-soft)]">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <div className="flex items-center gap-2">
+            <motion.div key={l.id} layout className="rounded-3xl border border-border bg-card p-4 sm:p-5 shadow-[var(--shadow-soft)]">
+              <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
                     <h3 className="font-display text-lg font-semibold">{l.name}</h3>
                     {l.status === "closed" ? <span className="rounded-full bg-success/20 px-2 py-0.5 text-xs font-semibold text-success">Closed</span> : <span className="rounded-full bg-warning/30 px-2 py-0.5 text-xs font-semibold text-warning-foreground">Active</span>}
                   </div>
-                  <div className="text-xs text-muted-foreground">{memberMap[l.user_id]?.full_name} · started {formatDate(l.start_date)} · {l.interest_rate_monthly}% / mo</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">{memberMap[l.user_id]?.full_name} · started {formatDate(l.start_date)} · {l.interest_rate_monthly}% / mo</div>
                 </div>
-                <div className="text-right">
-                  <div className="text-xs text-muted-foreground">Remaining</div>
-                  <div className="font-display text-2xl font-bold">{formatMoney(Number(l.remaining_balance))}</div>
-                  <div className="text-xs text-muted-foreground">of {formatMoney(Number(l.principal))}</div>
+                <div className="flex items-center justify-between sm:flex-col sm:items-end border-t sm:border-t-0 pt-2 sm:pt-0 border-border/40">
+                  <div className="text-xs text-muted-foreground">Remaining balance:</div>
+                  <div className="text-right">
+                    <span className="font-display text-xl sm:text-2xl font-bold">{formatMoney(Number(l.remaining_balance))}</span>
+                    <span className="block text-[11px] text-muted-foreground">of {formatMoney(Number(l.principal))}</span>
+                  </div>
                 </div>
               </div>
 
@@ -92,17 +100,26 @@ function Loans() {
               </div>
               <div className="mt-1 flex justify-between text-xs text-muted-foreground"><span>{progress.toFixed(0)}% paid</span><span>{remainingMonths} mo left</span></div>
 
-              <div className="mt-4 flex flex-wrap gap-2">
-                {l.status === "active" && l.user_id === user?.id && (
+              <div className="mt-4 flex flex-wrap items-center gap-2">
+                {l.status === "active" && (l.user_id === user?.id || isAdmin) && (
                   <>
-                    <button onClick={() => setPaying(l)} className="rounded-full bg-primary px-4 py-1.5 text-sm font-semibold text-primary-foreground">Add payment</button>
-                    <button onClick={() => close(l.id)} className="inline-flex items-center gap-1 rounded-full border border-border bg-card px-4 py-1.5 text-sm hover:bg-secondary"><CheckCircle2 className="h-4 w-4 text-success" /> Mark closed</button>
+                    <button onClick={() => setPaying(l)} className="flex-1 sm:flex-initial rounded-full bg-primary px-4 py-1.5 text-xs sm:text-sm font-semibold text-primary-foreground text-center">Add payment</button>
+                    <button onClick={() => close(l.id)} className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1 rounded-full border border-border bg-card px-3.5 py-1.5 text-xs sm:text-sm hover:bg-secondary"><CheckCircle2 className="h-4 w-4 text-success" /> Mark closed</button>
                   </>
                 )}
-                <button onClick={() => setExpanded(isOpen ? null : l.id)} className="inline-flex items-center gap-1 rounded-full border border-border bg-card px-4 py-1.5 text-sm hover:bg-secondary">
+                <button onClick={() => setExpanded(isOpen ? null : l.id)} className="inline-flex items-center justify-center gap-1 rounded-full border border-border bg-card px-3.5 py-1.5 text-xs sm:text-sm hover:bg-secondary">
                   <ChevronDown className={`h-4 w-4 transition ${isOpen ? "rotate-180" : ""}`} /> History ({loanPays.length})
                 </button>
-                {l.user_id === user?.id && <button onClick={() => del(l.id)} className="ml-auto grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-destructive"><Trash2 className="h-4 w-4" /></button>}
+                {(l.user_id === user?.id || isAdmin) && (
+                  <div className="ml-auto flex items-center gap-1">
+                    <button onClick={() => { setEditingLoan(l); setOpen(true); }} title="Edit" className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-primary">
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                    <button onClick={() => del(l.id)} title="Delete" className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-destructive">
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                )}
               </div>
 
               <AnimatePresence>
@@ -132,39 +149,87 @@ function Loans() {
         {loans.length === 0 && <div className="rounded-3xl border border-dashed border-border p-10 text-center text-sm text-muted-foreground">No loans tracked yet.</div>}
       </div>
 
-      <AnimatePresence>{open && <LoanDialog onClose={() => setOpen(false)} onSaved={() => { load(); setOpen(false); }} />}</AnimatePresence>
-      <AnimatePresence>{paying && <PaymentDialog loan={paying} onClose={() => setPaying(null)} onSaved={() => { load(); setPaying(null); }} />}</AnimatePresence>
+      <AnimatePresence>
+        {open && (
+          <LoanDialog
+            loan={editingLoan}
+            onClose={() => { setOpen(false); setEditingLoan(null); }}
+            onSaved={() => { load(); setOpen(false); setEditingLoan(null); }}
+          />
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {paying && (
+          <PaymentDialog
+            loan={paying}
+            accounts={accounts}
+            onClose={() => setPaying(null)}
+            onSaved={() => { load(); setPaying(null); }}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }
 
-function LoanDialog({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+function LoanDialog({ loan, onClose, onSaved }: { loan?: Loan | null; onClose: () => void; onSaved: () => void }) {
   const { profile, user } = useAuth();
-  const [name, setName] = useState("");
-  const [principal, setPrincipal] = useState("");
-  const [rate, setRate] = useState("1.0");
-  const [tenure, setTenure] = useState("12");
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [name, setName] = useState(loan?.name ?? "");
+  const [principal, setPrincipal] = useState(loan ? String(loan.principal) : "");
+  const [rate, setRate] = useState(loan ? String(loan.interest_rate_monthly) : "1.0");
+  const [tenure, setTenure] = useState(loan ? String(loan.tenure_months) : "12");
+  const [date, setDate] = useState(loan?.start_date ?? new Date().toISOString().slice(0, 10));
+  const [notes, setNotes] = useState(loan?.notes ?? "");
   const [loading, setLoading] = useState(false);
+
+  const isEdit = !!loan;
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!profile?.family_id || !user) return;
     setLoading(true);
     const p = Number(principal);
-    const { error } = await supabase.from("loans").insert({
-      user_id: user.id, family_id: profile.family_id, name, principal: p, remaining_balance: p,
-      interest_rate_monthly: Number(rate), tenure_months: Number(tenure), start_date: date,
-    });
-    if (error) { toast.error(error.message); setLoading(false); return; }
-    toast.success("Loan added"); onSaved();
+
+    if (isEdit) {
+      const { error } = await supabase.from("loans").update({
+        name: name.trim(),
+        principal: p,
+        interest_rate_monthly: Number(rate),
+        tenure_months: Number(tenure),
+        start_date: date,
+        notes: notes.trim() || null,
+      }).eq("id", loan.id);
+      setLoading(false);
+      if (error) { toast.error(error.message); return; }
+      toast.success("Loan updated");
+    } else {
+      const { error } = await supabase.from("loans").insert({
+        user_id: user.id,
+        family_id: profile.family_id,
+        name: name.trim(),
+        principal: p,
+        remaining_balance: p,
+        interest_rate_monthly: Number(rate),
+        tenure_months: Number(tenure),
+        start_date: date,
+        notes: notes.trim() || null,
+      });
+      setLoading(false);
+      if (error) { toast.error(error.message); return; }
+      toast.success("Loan added");
+    }
+    onSaved();
   };
+
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={onClose}>
       <motion.form initial={{ scale: 0.95 }} animate={{ scale: 1 }} onClick={(e) => e.stopPropagation()} onSubmit={save} className="w-full max-w-md rounded-3xl border border-border bg-card p-6 shadow-[var(--shadow-elevated)]">
-        <div className="mb-4 flex items-center justify-between"><h2 className="font-display text-xl font-bold">New loan</h2><button type="button" onClick={onClose} className="grid h-8 w-8 place-items-center rounded-lg hover:bg-secondary"><X className="h-4 w-4" /></button></div>
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="font-display text-xl font-bold">{isEdit ? "Edit loan" : "New loan"}</h2>
+          <button type="button" onClick={onClose} className="grid h-8 w-8 place-items-center rounded-lg hover:bg-secondary"><X className="h-4 w-4" /></button>
+        </div>
         <div className="space-y-3">
-          <Field label="Name" value={name} onChange={setName} required placeholder="Car loan" />
+          <Field label="Loan name" value={name} onChange={setName} required placeholder="Car loan, mortgage, etc." autoFocus />
           <div className="grid grid-cols-2 gap-3">
             <Field label="Principal" type="number" step="0.01" value={principal} onChange={setPrincipal} required />
             <Field label="Interest % / month" type="number" step="0.01" value={rate} onChange={setRate} required />
@@ -173,17 +238,22 @@ function LoanDialog({ onClose, onSaved }: { onClose: () => void; onSaved: () => 
             <Field label="Tenure (months)" type="number" value={tenure} onChange={setTenure} required />
             <Field label="Start date" type="date" value={date} onChange={setDate} required />
           </div>
+          <Field label="Notes (optional)" value={notes} onChange={setNotes} placeholder="Loan terms, lender, etc." />
         </div>
-        <button disabled={loading} className="mt-5 w-full rounded-full px-5 py-3 font-semibold text-primary-foreground" style={{ background: "var(--gradient-warm)" }}>{loading ? "Saving…" : "Add loan"}</button>
+        <button disabled={loading} className="mt-5 w-full rounded-full px-5 py-3 font-semibold text-primary-foreground disabled:opacity-60" style={{ background: "var(--gradient-warm)" }}>
+          {loading ? "Saving…" : isEdit ? "Update loan" : "Add loan"}
+        </button>
       </motion.form>
     </motion.div>
   );
 }
 
-function PaymentDialog({ loan, onClose, onSaved }: { loan: Loan; onClose: () => void; onSaved: () => void }) {
+function PaymentDialog({ loan, accounts, onClose, onSaved }: { loan: Loan; accounts: any[]; onClose: () => void; onSaved: () => void }) {
   const { profile, user } = useAuth();
   const [amount, setAmount] = useState("");
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [accountId, setAccountId] = useState<string>(accounts[0]?.id ?? "");
+  const [recordTransaction, setRecordTransaction] = useState(true);
   const [note, setNote] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -200,27 +270,64 @@ function PaymentDialog({ loan, onClose, onSaved }: { loan: Loan; onClose: () => 
     const newBalance = Math.max(0, Number(loan.remaining_balance) - principalPaid);
 
     const { error } = await supabase.from("loan_payments").insert({
-      loan_id: loan.id, user_id: user.id, family_id: profile.family_id,
-      amount: amt, principal_paid: principalPaid, interest_paid: interestPaid, paid_on: date, note: note || null,
+      loan_id: loan.id,
+      user_id: user.id,
+      family_id: profile.family_id,
+      amount: amt,
+      principal_paid: principalPaid,
+      interest_paid: interestPaid,
+      paid_on: date,
+      note: note.trim() || null,
     });
     if (error) { toast.error(error.message); setLoading(false); return; }
 
-    const { error: e2 } = await supabase.from("loans").update({ remaining_balance: newBalance, status: newBalance === 0 ? "closed" : "active" }).eq("id", loan.id);
+    const { error: e2 } = await supabase.from("loans").update({
+      remaining_balance: newBalance,
+      status: newBalance === 0 ? "closed" : "active"
+    }).eq("id", loan.id);
     if (e2) { toast.error(e2.message); setLoading(false); return; }
 
-    toast.success(newBalance === 0 ? "Loan paid off! 🎉" : "Payment recorded"); onSaved();
+    // Optionally record an expense transaction in the ledger
+    if (recordTransaction) {
+      await supabase.from("transactions").insert({
+        user_id: user.id,
+        family_id: profile.family_id,
+        type: "expense",
+        amount: amt,
+        occurred_on: date,
+        account_id: accountId || null,
+        note: `Loan payment: ${loan.name}${note ? ` (${note.trim()})` : ""}`,
+      });
+    }
+
+    toast.success(newBalance === 0 ? "Loan paid off! 🎉" : "Payment recorded");
+    onSaved();
   };
+
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={onClose}>
       <motion.form initial={{ scale: 0.95 }} animate={{ scale: 1 }} onClick={(e) => e.stopPropagation()} onSubmit={save} className="w-full max-w-md rounded-3xl border border-border bg-card p-6 shadow-[var(--shadow-elevated)]">
         <h2 className="font-display text-xl font-bold">Add payment</h2>
         <p className="mt-1 text-sm text-muted-foreground">{loan.name} · Interest due this period: <strong>{formatMoney(interestDue)}</strong></p>
         <div className="mt-4 space-y-3">
-          <Field label="Payment amount" type="number" step="0.01" value={amount} onChange={setAmount} required />
+          <Field label="Payment amount" type="number" step="0.01" value={amount} onChange={setAmount} required autoFocus />
           <Field label="Date" type="date" value={date} onChange={setDate} required />
-          <Field label="Note (optional)" value={note} onChange={setNote} />
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-muted-foreground">Pay from account (optional)</span>
+            <select value={accountId} onChange={(e) => setAccountId(e.target.value)} className="w-full rounded-xl border border-input bg-background px-3.5 py-2.5 text-sm">
+              <option value="">None / External</option>
+              {accounts.map((a) => <option key={a.id} value={a.id}>{a.name} ({formatMoney(Number(a.balance))})</option>)}
+            </select>
+          </label>
+          <label className="flex items-center gap-2 text-xs text-muted-foreground pt-1">
+            <input type="checkbox" checked={recordTransaction} onChange={(e) => setRecordTransaction(e.target.checked)} />
+            Record corresponding expense in family ledger
+          </label>
+          <Field label="Note (optional)" value={note} onChange={setNote} placeholder="Month 3 installment, etc." />
         </div>
-        <button disabled={loading} className="mt-5 w-full rounded-full px-5 py-3 font-semibold text-primary-foreground" style={{ background: "var(--gradient-warm)" }}>{loading ? "Saving…" : "Record payment"}</button>
+        <button disabled={loading} className="mt-5 w-full rounded-full px-5 py-3 font-semibold text-primary-foreground disabled:opacity-60" style={{ background: "var(--gradient-warm)" }}>
+          {loading ? "Saving…" : "Record payment"}
+        </button>
       </motion.form>
     </motion.div>
   );

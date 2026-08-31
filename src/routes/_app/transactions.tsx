@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { formatMoney } from "@/lib/format";
 import { toast } from "sonner";
-import { Plus, Trash2, X, Upload, FileSpreadsheet } from "lucide-react";
+import { Plus, Trash2, X, Upload, FileSpreadsheet, Pencil, Search, Filter } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import * as XLSX from "xlsx";
 
@@ -17,14 +17,18 @@ interface Tx { id: string; amount: number; type: "income" | "expense"; occurred_
 
 function Transactions() {
   const search = Route.useSearch();
-  const { profile, user } = useAuth();
+  const { profile, user, isAdmin } = useAuth();
   const [txs, setTxs] = useState<Tx[]>([]);
   const [tags, setTags] = useState<any[]>([]);
   const [accounts, setAccounts] = useState<any[]>([]);
   const [members, setMembers] = useState<any[]>([]);
   const [open, setOpen] = useState(search.new === "1");
+  const [editTx, setEditTx] = useState<Tx | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [filter, setFilter] = useState<"all" | "income" | "expense">("all");
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
+  const [accountFilter, setAccountFilter] = useState<string>("all");
+  const [searchQuery, setSearchQuery] = useState("");
 
   const load = async () => {
     if (!profile?.family_id) return;
@@ -39,11 +43,60 @@ function Transactions() {
     setAccounts(a.data ?? []);
     setMembers(m.data ?? []);
   };
-  useEffect(() => { load(); }, [profile?.family_id]);
 
-  const filtered = useMemo(() => filter === "all" ? txs : txs.filter((t) => t.type === filter), [txs, filter]);
+  useEffect(() => {
+    load();
+    if (!profile?.family_id) return;
+    const channel = supabase
+      .channel("tx-realtime")
+      .on("postgres_changes", { event: "*", schema: "public", table: "transactions" }, () => {
+        load();
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [profile?.family_id]);
+
   const tagMap = Object.fromEntries(tags.map((t) => [t.id, t]));
   const memberMap = Object.fromEntries(members.map((m) => [m.id, m]));
+  const accountMap = Object.fromEntries(accounts.map((a) => [a.id, a]));
+
+  const exportExcel = () => {
+    if (filtered.length === 0) {
+      toast.error("No transactions to export");
+      return;
+    }
+    const rows = filtered.map((t) => ({
+      "Date": t.occurred_on,
+      "Type": t.type,
+      "Amount": Number(t.amount),
+      "Category": t.tag_id ? tagMap[t.tag_id]?.name || "" : "Uncategorized",
+      "Account": t.account_id ? accountMap[t.account_id]?.name || "" : "",
+      "Member": memberMap[t.user_id]?.full_name || "",
+      "Note": t.note || "",
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Transactions");
+    XLSX.writeFile(wb, `Family_Transactions_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    toast.success("Transactions exported successfully");
+  };
+
+  const filtered = useMemo(() => {
+    return txs.filter((t) => {
+      if (filter !== "all" && t.type !== filter) return false;
+      if (categoryFilter !== "all" && t.tag_id !== categoryFilter) return false;
+      if (accountFilter !== "all" && t.account_id !== accountFilter) return false;
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        const note = (t.note || "").toLowerCase();
+        const tag = (t.tag_id ? tagMap[t.tag_id]?.name || "" : "").toLowerCase();
+        const member = (memberMap[t.user_id]?.full_name || "").toLowerCase();
+        const amt = String(t.amount);
+        if (!note.includes(q) && !tag.includes(q) && !member.includes(q) && !amt.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [txs, filter, categoryFilter, accountFilter, searchQuery, tagMap, memberMap]);
 
   const del = async (id: string) => {
     if (!confirm("Delete this transaction?")) return;
@@ -53,49 +106,105 @@ function Transactions() {
 
   return (
     <div className="space-y-6">
-      <header className="flex flex-wrap items-end justify-between gap-3">
+      <header className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
         <div>
           <h1 className="font-display text-3xl font-bold">Transactions</h1>
-          <p className="text-muted-foreground">All family income & expenses.</p>
+          <p className="text-muted-foreground text-sm">All family income & expenses.</p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <button onClick={() => setImportOpen(true)} className="inline-flex items-center gap-2 rounded-full bg-card border border-border px-4 py-2.5 text-sm font-semibold hover:bg-secondary">
-            <Upload className="h-4 w-4" /> Import CSV/Excel
+        <div className="flex flex-wrap items-center gap-2">
+          <button onClick={exportExcel} className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 rounded-full bg-card border border-border px-3.5 py-2 text-xs font-semibold hover:bg-secondary">
+            <FileSpreadsheet className="h-3.5 w-3.5" /> Export
           </button>
-          <button onClick={() => setOpen(true)} className="inline-flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-[var(--shadow-soft)]" style={{ background: "var(--gradient-warm)" }}>
+          <button onClick={() => setImportOpen(true)} className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 rounded-full bg-card border border-border px-3.5 py-2 text-xs font-semibold hover:bg-secondary">
+            <Upload className="h-3.5 w-3.5" /> Import
+          </button>
+          <button onClick={() => { setEditTx(null); setOpen(true); }} className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-[var(--shadow-soft)]" style={{ background: "var(--gradient-warm)" }}>
             <Plus className="h-4 w-4" /> Add transaction
           </button>
         </div>
       </header>
 
-      <div className="flex gap-2">
-        {(["all", "income", "expense"] as const).map((f) => (
-          <button key={f} onClick={() => setFilter(f)} className={`rounded-full px-4 py-1.5 text-sm font-medium capitalize ${filter === f ? "bg-primary text-primary-foreground" : "bg-card border border-border hover:bg-secondary"}`}>{f}</button>
-        ))}
+      {/* Filters bar */}
+      <div className="flex flex-col sm:flex-row sm:items-center gap-2.5">
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
+          {(["all", "income", "expense"] as const).map((f) => (
+            <button key={f} onClick={() => setFilter(f)} className={`rounded-full px-3.5 py-1.5 text-xs font-semibold capitalize whitespace-nowrap ${filter === f ? "bg-primary text-primary-foreground" : "bg-card border border-border hover:bg-secondary"}`}>{f}</button>
+          ))}
+        </div>
+
+        <div className="relative flex-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <input
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search notes, tags, members…"
+            className="w-full rounded-full border border-input bg-card pl-8 pr-3 py-1.5 text-xs outline-none focus:border-primary"
+          />
+        </div>
+
+        <div className="grid grid-cols-2 sm:flex sm:items-center gap-2">
+          <select
+            value={categoryFilter}
+            onChange={(e) => setCategoryFilter(e.target.value)}
+            className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium truncate"
+          >
+            <option value="all">All categories</option>
+            {tags.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </select>
+
+          <select
+            value={accountFilter}
+            onChange={(e) => setAccountFilter(e.target.value)}
+            className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium truncate"
+          >
+            <option value="all">All accounts</option>
+            {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+          </select>
+        </div>
       </div>
 
-      <div className="rounded-3xl border border-border bg-card shadow-[var(--shadow-soft)]">
+      <div className="rounded-3xl border border-border bg-card shadow-[var(--shadow-soft)] overflow-hidden">
         {filtered.length === 0 ? (
-          <div className="grid h-48 place-items-center text-sm text-muted-foreground">No transactions yet. Add your first one.</div>
+          <div className="grid h-48 place-items-center text-sm text-muted-foreground px-4 text-center">
+            {txs.length === 0 ? "No transactions yet. Add your first one." : "No transactions match your current filters."}
+          </div>
         ) : (
           <ul className="divide-y divide-border">
             {filtered.map((t) => (
-              <li key={t.id} className="flex items-center justify-between gap-3 px-5 py-4">
-                <div className="flex min-w-0 items-center gap-3">
-                  <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl text-white text-lg font-bold" style={{ background: t.type === "income" ? "var(--success)" : "var(--primary)" }}>
+              <li key={t.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 py-3.5 hover:bg-secondary/30 transition-colors">
+                <div className="flex min-w-0 items-start sm:items-center gap-3">
+                  <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl text-white text-base font-bold" style={{ background: t.type === "income" ? "var(--success)" : "var(--primary)" }}>
                     {t.type === "income" ? "+" : "−"}
                   </div>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      {t.tag_id && <span className="rounded-full px-2 py-0.5 text-xs font-medium" style={{ background: tagMap[t.tag_id]?.color + "33", color: tagMap[t.tag_id]?.color }}>{tagMap[t.tag_id]?.name}</span>}
-                      <span className="truncate text-sm text-muted-foreground">{t.note || "No note"}</span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {t.tag_id && (
+                        <span className="rounded-full px-2 py-0.5 text-[11px] font-medium" style={{ background: (tagMap[t.tag_id]?.color || "#a98467") + "33", color: tagMap[t.tag_id]?.color || "#a98467" }}>
+                          {tagMap[t.tag_id]?.name || "Tag"}
+                        </span>
+                      )}
+                      {t.account_id && accountMap[t.account_id] && (
+                        <span className="rounded-full bg-secondary px-2 py-0.5 text-[11px] text-muted-foreground">
+                          {accountMap[t.account_id].name}
+                        </span>
+                      )}
+                      <span className="truncate text-xs sm:text-sm text-muted-foreground font-normal">{t.note || "No note"}</span>
                     </div>
-                    <div className="text-xs text-muted-foreground">{memberMap[t.user_id]?.full_name} · {new Date(t.occurred_on).toLocaleDateString()}</div>
+                    <div className="text-[11px] text-muted-foreground mt-0.5">{memberMap[t.user_id]?.full_name || "Member"} · {new Date(t.occurred_on).toLocaleDateString()}</div>
                   </div>
                 </div>
-                <div className="flex items-center gap-3">
-                  <div className={`font-semibold ${t.type === "income" ? "text-success" : ""}`}>{t.type === "income" ? "+" : "−"}{formatMoney(Number(t.amount))}</div>
-                  {t.user_id === user?.id && <button onClick={() => del(t.id)} className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-destructive"><Trash2 className="h-4 w-4" /></button>}
+                <div className="flex items-center justify-between sm:justify-end gap-3 pl-12 sm:pl-0">
+                  <div className={`font-semibold text-sm sm:text-base ${t.type === "income" ? "text-success" : ""}`}>{t.type === "income" ? "+" : "−"}{formatMoney(Number(t.amount))}</div>
+                  {(t.user_id === user?.id || isAdmin) && (
+                    <div className="flex items-center gap-1">
+                      <button onClick={() => { setEditTx(t); setOpen(true); }} title="Edit" className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-primary">
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                      <button onClick={() => del(t.id)} title="Delete" className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-destructive">
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  )}
                 </div>
               </li>
             ))}
@@ -103,32 +212,66 @@ function Transactions() {
         )}
       </div>
 
-      <AnimatePresence>{open && <TxDialog onClose={() => setOpen(false)} onSaved={() => { load(); setOpen(false); }} tags={tags} accounts={accounts} />}</AnimatePresence>
+      <AnimatePresence>
+        {open && (
+          <TxDialog
+            tx={editTx}
+            onClose={() => { setOpen(false); setEditTx(null); }}
+            onSaved={() => { load(); setOpen(false); setEditTx(null); }}
+            tags={tags}
+            accounts={accounts}
+          />
+        )}
+      </AnimatePresence>
       <AnimatePresence>{importOpen && <ImportDialog onClose={() => setImportOpen(false)} onImported={() => { load(); setImportOpen(false); }} tags={tags} accounts={accounts} />}</AnimatePresence>
     </div>
   );
 }
 
-function TxDialog({ onClose, onSaved, tags, accounts }: { onClose: () => void; onSaved: () => void; tags: any[]; accounts: any[] }) {
+function TxDialog({ tx, onClose, onSaved, tags, accounts }: { tx?: Tx | null; onClose: () => void; onSaved: () => void; tags: any[]; accounts: any[] }) {
   const { profile, user } = useAuth();
-  const [type, setType] = useState<"expense" | "income">("expense");
-  const [amount, setAmount] = useState("");
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
-  const [tagId, setTagId] = useState<string>(tags[0]?.id ?? "");
-  const [accountId, setAccountId] = useState<string>(accounts[0]?.id ?? "");
-  const [note, setNote] = useState("");
+  const [type, setType] = useState<"expense" | "income">(tx?.type ?? "expense");
+  const [amount, setAmount] = useState(tx ? String(tx.amount) : "");
+  const [date, setDate] = useState(tx?.occurred_on ?? new Date().toISOString().slice(0, 10));
+  const [tagId, setTagId] = useState<string>(tx?.tag_id ?? tags[0]?.id ?? "");
+  const [accountId, setAccountId] = useState<string>(tx?.account_id ?? accounts[0]?.id ?? "");
+  const [note, setNote] = useState(tx?.note ?? "");
   const [loading, setLoading] = useState(false);
+
+  const isEdit = !!tx;
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!profile?.family_id || !user) return;
     setLoading(true);
-    const { error } = await supabase.from("transactions").insert({
-      user_id: user.id, family_id: profile.family_id, type, amount: Number(amount),
-      occurred_on: date, tag_id: tagId || null, account_id: accountId || null, note: note || null,
-    });
-    if (error) { toast.error(error.message); setLoading(false); return; }
-    toast.success("Transaction added");
+
+    if (isEdit) {
+      const { error } = await supabase.from("transactions").update({
+        type,
+        amount: Number(amount),
+        occurred_on: date,
+        tag_id: tagId || null,
+        account_id: accountId || null,
+        note: note.trim() || null,
+      }).eq("id", tx.id);
+      setLoading(false);
+      if (error) { toast.error(error.message); return; }
+      toast.success("Transaction updated");
+    } else {
+      const { error } = await supabase.from("transactions").insert({
+        user_id: user.id,
+        family_id: profile.family_id,
+        type,
+        amount: Number(amount),
+        occurred_on: date,
+        tag_id: tagId || null,
+        account_id: accountId || null,
+        note: note.trim() || null,
+      });
+      setLoading(false);
+      if (error) { toast.error(error.message); return; }
+      toast.success("Transaction added");
+    }
     onSaved();
   };
 
@@ -137,25 +280,25 @@ function TxDialog({ onClose, onSaved, tags, accounts }: { onClose: () => void; o
       <motion.form initial={{ scale: 0.95, y: 10 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, opacity: 0 }} onClick={(e) => e.stopPropagation()} onSubmit={save}
         className="w-full max-w-md rounded-3xl border border-border bg-card p-6 shadow-[var(--shadow-elevated)]">
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="font-display text-xl font-bold">Add transaction</h2>
+          <h2 className="font-display text-xl font-bold">{isEdit ? "Edit transaction" : "Add transaction"}</h2>
           <button type="button" onClick={onClose} className="grid h-8 w-8 place-items-center rounded-lg hover:bg-secondary"><X className="h-4 w-4" /></button>
         </div>
 
         <div className="grid grid-cols-2 gap-2">
-          <button type="button" onClick={() => setType("expense")} className={`rounded-xl py-2.5 text-sm font-semibold ${type === "expense" ? "bg-primary text-primary-foreground" : "bg-secondary"}`}>Expense</button>
-          <button type="button" onClick={() => setType("income")} className={`rounded-xl py-2.5 text-sm font-semibold ${type === "income" ? "bg-success text-success-foreground" : "bg-secondary"}`}>Income</button>
+          <button type="button" onClick={() => setType("expense")} className={`rounded-xl py-2.5 text-sm font-semibold transition-colors ${type === "expense" ? "bg-primary text-primary-foreground" : "bg-secondary"}`}>Expense</button>
+          <button type="button" onClick={() => setType("income")} className={`rounded-xl py-2.5 text-sm font-semibold transition-colors ${type === "income" ? "bg-success text-success-foreground" : "bg-secondary"}`}>Income</button>
         </div>
 
         <div className="mt-4 space-y-3">
-          <Input label="Amount" type="number" step="0.01" min="0" value={amount} onChange={setAmount} required />
+          <Input label="Amount" type="number" step="0.01" min="0" value={amount} onChange={setAmount} required autoFocus />
           <Input label="Date" type="date" value={date} onChange={setDate} required />
-          <Select label="Category" value={tagId} onChange={setTagId} options={tags.map((t) => ({ value: t.id, label: t.name }))} />
+          <Select label="Category" value={tagId} onChange={setTagId} options={[{ value: "", label: "None" }, ...tags.map((t) => ({ value: t.id, label: t.name }))]} />
           <Select label="Account" value={accountId} onChange={setAccountId} options={[{ value: "", label: "None" }, ...accounts.map((a) => ({ value: a.id, label: a.name }))]} />
-          <Input label="Note (optional)" value={note} onChange={setNote} />
+          <Input label="Note (optional)" value={note} onChange={setNote} placeholder="Grocery store, coffee, etc." />
         </div>
 
-        <button disabled={loading} className="mt-5 w-full rounded-full px-5 py-3 font-semibold text-primary-foreground" style={{ background: "var(--gradient-warm)" }}>
-          {loading ? "Saving…" : "Save transaction"}
+        <button disabled={loading} className="mt-5 w-full rounded-full px-5 py-3 font-semibold text-primary-foreground disabled:opacity-60" style={{ background: "var(--gradient-warm)" }}>
+          {loading ? "Saving…" : isEdit ? "Update transaction" : "Save transaction"}
         </button>
       </motion.form>
     </motion.div>

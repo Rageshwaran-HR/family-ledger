@@ -3,12 +3,12 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { toast } from "sonner";
-import { Crown, Copy, Mail, Trash2, Plus, Check, Clock, XCircle } from "lucide-react";
+import { Crown, Copy, Mail, Trash2, Plus, Check, Clock, XCircle, ShieldAlert, UserMinus } from "lucide-react";
 
 export const Route = createFileRoute("/_app/family")({ component: Family });
 
 function Family() {
-  const { profile, isAdmin, user } = useAuth();
+  const { profile, isAdmin, user, refresh } = useAuth();
   const [members, setMembers] = useState<any[]>([]);
   const [roles, setRoles] = useState<any[]>([]);
   const [family, setFamily] = useState<any>(null);
@@ -33,12 +33,16 @@ function Family() {
       supabase.from("families").select("*").eq("id", profile.family_id).maybeSingle(),
       supabase.from("family_invitations").select("*").eq("family_id", profile.family_id).order("created_at", { ascending: false }),
     ]);
-    setMembers(m.data ?? []); setRoles(r.data ?? []); setFamily(f.data);
+    setMembers(m.data ?? []);
+    setRoles(r.data ?? []);
+    setFamily(f.data);
     setInvites(i.data ?? []);
   };
   useEffect(() => { load(); }, [profile?.family_id]);
 
   const isAdminUser = (uid: string) => roles.some((r) => r.user_id === uid && r.role === "admin");
+  const getUserRole = (uid: string): "admin" | "member" =>
+    roles.find((r) => r.user_id === uid)?.role ?? "member";
 
   const inviteLink = (token: string) => `${window.location.origin}/auth?mode=signup&token=${token}`;
 
@@ -83,6 +87,34 @@ function Family() {
     if (!confirm("Revoke this invitation?")) return;
     const { error } = await supabase.from("family_invitations").delete().eq("id", id);
     if (error) toast.error(error.message); else { toast.success("Revoked"); load(); }
+  };
+
+  const changeRole = async (targetUserId: string, newRole: "admin" | "member") => {
+    if (!isAdmin) return;
+    const { error } = await supabase.rpc("update_member_role", {
+      _member_user_id: targetUserId,
+      _new_role: newRole,
+    });
+    if (error) {
+      toast.error(error.message);
+    } else {
+      toast.success(`Role updated to ${newRole}`);
+      await load();
+      await refresh();
+    }
+  };
+
+  const removeMember = async (targetUserId: string, name: string) => {
+    if (!confirm(`Remove ${name} from this family group?`)) return;
+    const { error } = await supabase.rpc("remove_family_member", {
+      _member_user_id: targetUserId,
+    });
+    if (error) {
+      toast.error(error.message);
+    } else {
+      toast.success(`${name} has been removed`);
+      await load();
+    }
   };
 
   const countdown = (expiresAt: string): string => {
@@ -159,34 +191,36 @@ function Family() {
                 const used = !!inv.accepted_at;
                 const status: "accepted" | "expired" | "pending" = used ? "accepted" : expired ? "expired" : "pending";
                 return (
-                  <div key={inv.id} className="flex flex-wrap items-center gap-2 rounded-2xl border border-border bg-secondary/50 p-3 text-sm">
+                  <div key={inv.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 rounded-2xl border border-border bg-secondary/50 p-3.5 text-sm">
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium truncate">{inv.email || "No email"}</span>
-                        {status === "accepted" && <span className="inline-flex items-center gap-1 rounded-full bg-success/20 px-2 py-0.5 text-xs font-semibold text-success"><Check className="h-3 w-3" /> Accepted</span>}
-                        {status === "expired" && <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs font-semibold"><XCircle className="h-3 w-3" /> Expired</span>}
-                        {status === "pending" && <span className="inline-flex items-center gap-1 rounded-full bg-warning/30 px-2 py-0.5 text-xs font-semibold"><Clock className="h-3 w-3" /> Pending</span>}
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-medium truncate">{inv.email || "Open invite link"}</span>
+                        {status === "accepted" && <span className="inline-flex items-center gap-1 rounded-full bg-success/20 px-2 py-0.5 text-[11px] font-semibold text-success"><Check className="h-3 w-3" /> Accepted</span>}
+                        {status === "expired" && <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold"><XCircle className="h-3 w-3" /> Expired</span>}
+                        {status === "pending" && <span className="inline-flex items-center gap-1 rounded-full bg-warning/30 px-2 py-0.5 text-[11px] font-semibold"><Clock className="h-3 w-3" /> Pending</span>}
                       </div>
-                      <div className="text-xs text-muted-foreground">
+                      <div className="text-xs text-muted-foreground mt-0.5">
                         {status === "accepted"
                           ? <>Accepted {new Date(inv.accepted_at).toLocaleDateString()}</>
                           : <>Expires {new Date(inv.expires_at).toLocaleDateString()} · <span className={status === "expired" ? "text-destructive" : ""}>{countdown(inv.expires_at)}</span></>
                         }
                       </div>
                     </div>
-                    {status === "pending" && (
-                      <>
-                        <button onClick={() => copyInviteLink(inv.id, inv.token)} className="inline-flex items-center gap-1 rounded-full bg-card border border-border px-3 py-1.5 text-xs font-semibold hover:bg-background">
-                          {copiedId === inv.id ? <><Check className="h-3 w-3" /> Copied</> : <><Copy className="h-3 w-3" /> Copy link</>}
-                        </button>
-                        <button onClick={() => setShownLink(inviteLink(inv.token))} className="inline-flex items-center gap-1 rounded-full bg-card border border-border px-3 py-1.5 text-xs font-semibold hover:bg-background">
-                          Show link
-                        </button>
-                      </>
-                    )}
-                    <button onClick={() => revokeInvite(inv.id)} className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
-                      <Trash2 className="h-4 w-4" />
-                    </button>
+                    <div className="flex items-center gap-2 pt-1 sm:pt-0 border-t sm:border-t-0 border-border/50">
+                      {status === "pending" && (
+                        <>
+                          <button onClick={() => copyInviteLink(inv.id, inv.token)} className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1 rounded-full bg-card border border-border px-3 py-1.5 text-xs font-semibold hover:bg-background">
+                            {copiedId === inv.id ? <><Check className="h-3 w-3" /> Copied</> : <><Copy className="h-3 w-3" /> Copy link</>}
+                          </button>
+                          <button onClick={() => setShownLink(inviteLink(inv.token))} className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1 rounded-full bg-card border border-border px-3 py-1.5 text-xs font-semibold hover:bg-background">
+                            Show
+                          </button>
+                        </>
+                      )}
+                      <button onClick={() => revokeInvite(inv.id)} title="Revoke" className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-destructive/10 hover:text-destructive shrink-0">
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
                   </div>
                 );
               })}
@@ -196,18 +230,52 @@ function Family() {
       )}
 
       <div className="grid gap-3 sm:grid-cols-2">
-        {members.map((m) => (
-          <div key={m.id} className="flex items-center gap-3 rounded-3xl border border-border bg-card p-4 shadow-[var(--shadow-soft)]">
-            <div className="grid h-12 w-12 place-items-center rounded-2xl text-primary-foreground font-bold" style={{ background: "var(--gradient-warm)" }}>
-              {(m.full_name || "?").slice(0,1).toUpperCase()}
+        {members.map((m) => {
+          const userIsAdmin = isAdminUser(m.id);
+          const currentRole = getUserRole(m.id);
+          const isSelf = m.id === user?.id;
+
+          return (
+            <div key={m.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-3xl border border-border bg-card p-4 shadow-[var(--shadow-soft)]">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl text-primary-foreground font-bold" style={{ background: "var(--gradient-warm)" }}>
+                  {(m.full_name || "?").slice(0,1).toUpperCase()}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5 font-medium truncate">
+                    {m.full_name} {userIsAdmin && <Crown className="h-3.5 w-3.5 text-warning shrink-0" />}
+                    {isSelf && <span className="text-xs text-muted-foreground">(You)</span>}
+                  </div>
+                  <div className="truncate text-xs text-muted-foreground">{m.email}</div>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between sm:justify-end gap-2 pl-14 sm:pl-0 border-t sm:border-t-0 pt-2 sm:pt-0 border-border/40">
+                {isAdmin && !isSelf ? (
+                  <>
+                    <select
+                      value={currentRole}
+                      onChange={(e) => changeRole(m.id, e.target.value as "admin" | "member")}
+                      className="rounded-full border border-border bg-secondary/70 px-3 py-1 text-xs font-semibold outline-none"
+                    >
+                      <option value="member">Member</option>
+                      <option value="admin">Admin</option>
+                    </select>
+                    <button
+                      onClick={() => removeMember(m.id, m.full_name || "this member")}
+                      title="Remove from family"
+                      className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                    >
+                      <UserMinus className="h-4 w-4" />
+                    </button>
+                  </>
+                ) : (
+                  userIsAdmin && <span className="rounded-full bg-warning/30 px-2.5 py-0.5 text-xs font-semibold text-warning-foreground">Admin</span>
+                )}
+              </div>
             </div>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-1.5 font-medium">{m.full_name} {isAdminUser(m.id) && <Crown className="h-3.5 w-3.5 text-warning" />}</div>
-              <div className="truncate text-xs text-muted-foreground">{m.email}</div>
-            </div>
-            {isAdminUser(m.id) && <span className="rounded-full bg-warning/30 px-2 py-0.5 text-xs font-semibold">Admin</span>}
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

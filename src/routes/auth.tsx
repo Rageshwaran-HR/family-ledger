@@ -7,10 +7,10 @@ import { motion } from "framer-motion";
 
 export const Route = createFileRoute("/auth")({
   component: AuthPage,
-  validateSearch: (s: Record<string, unknown>): { mode: "signin" | "signup"; token?: string } => {
-    const out: { mode: "signin" | "signup"; token?: string } = {
-      mode: (s.mode as string) === "signup" ? "signup" : "signin",
-    };
+  validateSearch: (s: Record<string, unknown>): { mode: "signin" | "signup" | "forgot" | "reset"; token?: string } => {
+    const validModes = ["signin", "signup", "forgot", "reset"] as const;
+    const mode = validModes.includes(s.mode as any) ? (s.mode as any) : "signin";
+    const out: { mode: "signin" | "signup" | "forgot" | "reset"; token?: string } = { mode };
     if (typeof s.token === "string") out.token = s.token;
     return out;
   },
@@ -18,9 +18,10 @@ export const Route = createFileRoute("/auth")({
 
 function AuthPage() {
   const { mode: initialMode, token } = Route.useSearch();
-  const [mode, setMode] = useState<"signin" | "signup">(token ? "signup" : initialMode);
+  const [mode, setMode] = useState<"signin" | "signup" | "forgot" | "reset">(token ? "signup" : initialMode);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [fullName, setFullName] = useState("");
   const [familyName, setFamilyName] = useState("");
   const [loading, setLoading] = useState(false);
@@ -28,7 +29,15 @@ function AuthPage() {
   const { user } = useAuth();
 
   useEffect(() => {
-    if (user && !token) navigate({ to: "/dashboard" });
+    // Check if user came from password recovery hash link
+    const hash = window.location.hash;
+    if (hash && hash.includes("type=recovery")) {
+      setMode("reset");
+    }
+  }, []);
+
+  useEffect(() => {
+    if (user && !token && mode !== "reset") navigate({ to: "/dashboard" });
     if (user && token) {
       (async () => {
         const { error } = await supabase.rpc("accept_invitation", { _token: token });
@@ -37,13 +46,28 @@ function AuthPage() {
         navigate({ to: "/dashboard" });
       })();
     }
-  }, [user, navigate, token]);
+  }, [user, navigate, token, mode]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     try {
-      if (mode === "signup") {
+      if (mode === "forgot") {
+        const { error } = await supabase.auth.resetPasswordForEmail(email, {
+          redirectTo: `${window.location.origin}/auth?mode=reset`,
+        });
+        if (error) throw error;
+        toast.success("Password reset instructions sent to your email!");
+        setMode("signin");
+      } else if (mode === "reset") {
+        if (password !== confirmPassword) {
+          throw new Error("Passwords do not match");
+        }
+        const { error } = await supabase.auth.updateUser({ password });
+        if (error) throw error;
+        toast.success("Password updated successfully! Welcome back.");
+        navigate({ to: "/dashboard" });
+      } else if (mode === "signup") {
         const { data, error } = await supabase.auth.signUp({
           email, password,
           options: { emailRedirectTo: `${window.location.origin}/dashboard`, data: { full_name: fullName } },
@@ -67,7 +91,6 @@ function AuthPage() {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
         toast.success("Welcome back!");
-        // useEffect will handle invitation acceptance if token present
         if (!token) navigate({ to: "/dashboard" });
       }
     } catch (err: any) {
@@ -83,9 +106,27 @@ function AuthPage() {
         className="w-full max-w-md rounded-3xl border border-border bg-card p-8 shadow-[var(--shadow-elevated)]">
         <div className="mb-6 text-center">
           <div className="mx-auto grid h-12 w-12 place-items-center rounded-2xl text-2xl text-primary-foreground" style={{ background: "var(--gradient-warm)" }}>♡</div>
-          <h1 className="mt-4 font-display text-3xl font-bold">{token ? "Join your family" : mode === "signup" ? "Create your family" : "Welcome back"}</h1>
+          <h1 className="mt-4 font-display text-3xl font-bold">
+            {token
+              ? "Join your family"
+              : mode === "signup"
+              ? "Create your family"
+              : mode === "forgot"
+              ? "Reset Password"
+              : mode === "reset"
+              ? "Set New Password"
+              : "Welcome back"}
+          </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            {token ? "You've been invited! Create an account or sign in to join." : mode === "signup" ? "Start tracking your family finances together." : "Sign in to your Hearth account."}
+            {token
+              ? "You've been invited! Create an account or sign in to join."
+              : mode === "signup"
+              ? "Start tracking your family finances together."
+              : mode === "forgot"
+              ? "Enter your email to receive recovery instructions."
+              : mode === "reset"
+              ? "Enter your new password below."
+              : "Sign in to your Hearth account."}
           </p>
         </div>
 
@@ -99,20 +140,82 @@ function AuthPage() {
           {mode === "signup" && token && (
             <Field label="Your name" value={fullName} onChange={setFullName} placeholder="Jamie Smith" required />
           )}
-          <Field label="Email" type="email" value={email} onChange={setEmail} placeholder="you@example.com" required />
-          <Field label="Password" type="password" value={password} onChange={setPassword} placeholder="••••••••" required minLength={6} />
+          {mode !== "reset" && (
+            <Field label="Email" type="email" value={email} onChange={setEmail} placeholder="you@example.com" required />
+          )}
+          {mode !== "forgot" && (
+            <Field
+              label={mode === "reset" ? "New password" : "Password"}
+              type="password"
+              value={password}
+              onChange={setPassword}
+              placeholder="••••••••"
+              required
+              minLength={6}
+            />
+          )}
+          {mode === "reset" && (
+            <Field
+              label="Confirm new password"
+              type="password"
+              value={confirmPassword}
+              onChange={setConfirmPassword}
+              placeholder="••••••••"
+              required
+              minLength={6}
+            />
+          )}
+
+          {mode === "signin" && (
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => setMode("forgot")}
+                className="text-xs font-medium text-muted-foreground hover:text-primary"
+              >
+                Forgot password?
+              </button>
+            </div>
+          )}
+
           <button disabled={loading} type="submit"
             className="mt-2 w-full rounded-full px-5 py-3 font-semibold text-primary-foreground shadow-[var(--shadow-soft)] disabled:opacity-60"
             style={{ background: "var(--gradient-warm)" }}>
-            {loading ? "Please wait…" : mode === "signup" ? "Create account" : "Sign in"}
+            {loading
+              ? "Please wait…"
+              : mode === "signup"
+              ? "Create account"
+              : mode === "forgot"
+              ? "Send reset link"
+              : mode === "reset"
+              ? "Update password"
+              : "Sign in"}
           </button>
         </form>
 
         <p className="mt-6 text-center text-sm text-muted-foreground">
-          {mode === "signup" ? "Already have an account?" : "New to Hearth?"}{" "}
-          <button onClick={() => setMode(mode === "signup" ? "signin" : "signup")} className="font-semibold text-primary hover:underline">
-            {mode === "signup" ? "Sign in" : "Create one"}
-          </button>
+          {mode === "signup" ? (
+            <>
+              Already have an account?{" "}
+              <button onClick={() => setMode("signin")} className="font-semibold text-primary hover:underline">
+                Sign in
+              </button>
+            </>
+          ) : mode === "forgot" || mode === "reset" ? (
+            <>
+              Remembered your password?{" "}
+              <button onClick={() => setMode("signin")} className="font-semibold text-primary hover:underline">
+                Back to Sign in
+              </button>
+            </>
+          ) : (
+            <>
+              New to Hearth?{" "}
+              <button onClick={() => setMode("signup")} className="font-semibold text-primary hover:underline">
+                Create one
+              </button>
+            </>
+          )}
         </p>
       </motion.div>
     </div>
@@ -128,3 +231,4 @@ function Field({ label, value, onChange, ...rest }: { label: string; value: stri
     </label>
   );
 }
+

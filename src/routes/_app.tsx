@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { supabase } from "@/integrations/supabase/client";
 import { formatMoney, formatDate } from "@/lib/format";
-import { LayoutDashboard, ArrowLeftRight, Wallet, Tag, Users, Bell, FileBarChart, LogOut, Menu, X, Heart, Settings } from "lucide-react";
+import { LayoutDashboard, ArrowLeftRight, Wallet, Tag, Users, Bell, FileBarChart, LogOut, Menu, X, Heart, Settings, Briefcase } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 export const Route = createFileRoute("/_app")({
@@ -15,6 +15,7 @@ const nav = [
   { to: "/transactions", label: "Transactions", icon: ArrowLeftRight },
   { to: "/accounts", label: "Accounts", icon: Wallet },
   { to: "/loans", label: "Loans", icon: Heart },
+  { to: "/business", label: "Business", icon: Briefcase },
   { to: "/tags", label: "Tags", icon: Tag },
   { to: "/reminders", label: "Reminders", icon: Bell },
   { to: "/family", label: "Family", icon: Users },
@@ -111,42 +112,47 @@ function AppShell() {
       </div>
 
       {/* Sidebar */}
-      <AnimatePresence>
-        {(open || true) && (
-          <aside className={`${open ? "block" : "hidden"} md:block fixed inset-x-0 top-[57px] z-20 md:static md:top-0 md:w-64 md:flex-shrink-0`}>
-            <div className="flex h-full flex-col gap-1 border-r border-border bg-sidebar p-4 md:h-screen md:sticky md:top-0">
-              <Link to="/dashboard" className="mb-4 hidden items-center gap-2 px-2 font-display text-2xl font-bold md:flex">
-                <span className="grid h-9 w-9 place-items-center rounded-xl text-primary-foreground" style={{ background: "var(--gradient-warm)" }}>♡</span>
-                Hearth
-              </Link>
-              <nav className="flex flex-col gap-1">
-                {nav.map((item) => {
-                  const active = path.startsWith(item.to);
-                  return (
-                    <Link key={item.to} to={item.to}
-                      className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${
-                        active ? "bg-primary text-primary-foreground shadow-[var(--shadow-soft)]" : "text-foreground hover:bg-sidebar-accent"
-                      }`}>
-                      <item.icon className="h-4 w-4" />
-                      {item.label}
-                    </Link>
-                  );
-                })}
-              </nav>
-              <div className="mt-auto border-t border-border pt-3">
-                <div className="px-3 py-2">
-                  <div className="text-sm font-semibold text-foreground">{profile?.full_name || "You"}</div>
-                  <div className="truncate text-xs text-muted-foreground">{user.email}</div>
-                </div>
-                <button onClick={() => { signOut(); navigate({ to: "/" }); }}
-                  className="mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-foreground hover:bg-sidebar-accent">
-                  <LogOut className="h-4 w-4" /> Sign out
-                </button>
-              </div>
+      {/* Mobile Backdrop */}
+      {open && (
+        <div
+          className="fixed inset-0 top-[57px] z-20 bg-black/50 md:hidden"
+          onClick={() => setOpen(false)}
+        />
+      )}
+
+      <aside className={`${open ? "translate-x-0" : "-translate-x-full"} md:translate-x-0 fixed inset-y-0 left-0 top-[57px] md:top-0 z-20 w-64 flex-shrink-0 transition-transform duration-200 ease-in-out md:static`}>
+        <div className="flex h-[calc(100vh-57px)] md:h-screen flex-col gap-1 border-r border-border bg-sidebar p-4 overflow-y-auto md:sticky md:top-0">
+          <Link to="/dashboard" className="mb-4 hidden items-center gap-2 px-2 font-display text-2xl font-bold md:flex">
+            <span className="grid h-9 w-9 place-items-center rounded-xl text-primary-foreground" style={{ background: "var(--gradient-warm)" }}>♡</span>
+            Hearth
+          </Link>
+          <nav className="flex flex-col gap-1">
+            {nav.map((item) => {
+              const active = path.startsWith(item.to);
+              return (
+                <Link key={item.to} to={item.to}
+                  onClick={() => setOpen(false)}
+                  className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${
+                    active ? "bg-primary text-primary-foreground shadow-[var(--shadow-soft)]" : "text-foreground hover:bg-sidebar-accent"
+                  }`}>
+                  <item.icon className="h-4 w-4" />
+                  {item.label}
+                </Link>
+              );
+            })}
+          </nav>
+          <div className="mt-auto border-t border-border pt-3">
+            <div className="px-3 py-2">
+              <div className="text-sm font-semibold text-foreground">{profile?.full_name || "You"}</div>
+              <div className="truncate text-xs text-muted-foreground">{user.email}</div>
             </div>
-          </aside>
-        )}
-      </AnimatePresence>
+            <button onClick={() => { signOut(); navigate({ to: "/" }); }}
+              className="mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-foreground hover:bg-sidebar-accent">
+              <LogOut className="h-4 w-4" /> Sign out
+            </button>
+          </div>
+        </div>
+      </aside>
 
       <main className="flex-1 min-w-0">
         {/* Desktop top bar */}
@@ -165,11 +171,30 @@ function AppShell() {
             className="fixed inset-0 z-50 bg-black/40" onClick={() => setNotifOpen(false)}>
             <motion.div initial={{ x: "100%" }} animate={{ x: 0 }} exit={{ x: "100%" }} transition={{ type: "tween" }}
               onClick={(e) => e.stopPropagation()}
-              className="ml-auto h-full w-full max-w-sm border-l border-border bg-card p-5 overflow-y-auto">
+              className="ml-auto h-full w-full sm:max-w-sm border-l border-border bg-card p-5 overflow-y-auto">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="font-display text-xl font-bold">Notifications</h2>
                 <button onClick={() => setNotifOpen(false)} className="grid h-8 w-8 place-items-center rounded-lg hover:bg-secondary"><X className="h-4 w-4" /></button>
               </div>
+
+              {typeof window !== "undefined" && "Notification" in window && Notification.permission !== "granted" && (
+                <div className="mb-4 rounded-2xl border border-primary/20 bg-primary/5 p-3 text-xs">
+                  <div className="font-semibold text-primary">Enable desktop alerts</div>
+                  <div className="text-muted-foreground mt-0.5">Receive browser notifications when bills or dues approach.</div>
+                  <button
+                    onClick={async () => {
+                      const res = await Notification.requestPermission();
+                      if (res === "granted") {
+                        toast.success("Desktop alerts enabled!");
+                      }
+                    }}
+                    className="mt-2 rounded-lg bg-primary px-3 py-1.5 font-semibold text-primary-foreground text-xs"
+                  >
+                    Enable notifications
+                  </button>
+                </div>
+              )}
+
               {notifications.length === 0 ? (
                 <p className="py-12 text-center text-sm text-muted-foreground">All caught up! 🌿<br />No upcoming bills or dues.</p>
               ) : (

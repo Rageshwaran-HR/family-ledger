@@ -21,18 +21,26 @@ function Dashboard() {
   const [period, setPeriod] = useState<"month" | "year" | "all">("month");
   const [memberFilter, setMemberFilter] = useState<string>("all");
 
-  useEffect(() => {
+  const load = async () => {
     if (!profile?.family_id) return;
-    (async () => {
-      const [t, g, m] = await Promise.all([
-        supabase.from("transactions").select("*").order("occurred_on", { ascending: false }),
-        supabase.from("tags").select("id,name,color"),
-        supabase.from("profiles").select("id,full_name").eq("family_id", profile.family_id!),
-      ]);
-      setTxs((t.data as Tx[]) ?? []);
-      setTags((g.data as Tag[]) ?? []);
-      setMembers((m.data as Profile[]) ?? []);
-    })();
+    const [t, g, m] = await Promise.all([
+      supabase.from("transactions").select("*").order("occurred_on", { ascending: false }),
+      supabase.from("tags").select("id,name,color"),
+      supabase.from("profiles").select("id,full_name").eq("family_id", profile.family_id!),
+    ]);
+    setTxs((t.data as Tx[]) ?? []);
+    setTags((g.data as Tag[]) ?? []);
+    setMembers((m.data as Profile[]) ?? []);
+  };
+
+  useEffect(() => {
+    load();
+    if (!profile?.family_id) return;
+    const channel = supabase
+      .channel("dashboard-realtime")
+      .on("postgres_changes", { event: "*", schema: "public", table: "transactions" }, () => load())
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
   }, [profile?.family_id]);
 
   const filtered = useMemo(() => {
@@ -86,18 +94,18 @@ function Dashboard() {
         </Link>
       </header>
 
-      <div className="flex flex-wrap gap-2">
+      <div className="flex items-center gap-2 overflow-x-auto pb-1">
         <Pill active={period === "month"} onClick={() => setPeriod("month")}>This month</Pill>
         <Pill active={period === "year"} onClick={() => setPeriod("year")}>This year</Pill>
         <Pill active={period === "all"} onClick={() => setPeriod("all")}>All time</Pill>
         <select value={memberFilter} onChange={(e) => setMemberFilter(e.target.value)}
-          className="rounded-full border border-border bg-card px-4 py-1.5 text-sm">
+          className="rounded-full border border-border bg-card px-3.5 py-1.5 text-xs sm:text-sm shrink-0">
           <option value="all">All members</option>
           {members.map((m) => <option key={m.id} value={m.id}>{m.full_name}</option>)}
         </select>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-3 sm:gap-4">
         <StatCard label="Income" value={totalIncome} icon={TrendingUp} accent="success" />
         <StatCard label="Expenses" value={totalExpense} icon={TrendingDown} accent="destructive" />
         <StatCard label="Net" value={net} icon={Wallet} accent={net >= 0 ? "primary" : "destructive"} />
@@ -106,10 +114,10 @@ function Dashboard() {
       <div className="grid gap-4 lg:grid-cols-2">
         <Card title="Spending by category">
           {byTag.length === 0 ? <Empty msg="No expenses yet — add one to see your breakdown." /> : (
-            <div className="h-72">
+            <div className="h-64 sm:h-72">
               <ResponsiveContainer>
                 <PieChart>
-                  <Pie data={byTag} dataKey="value" nameKey="name" innerRadius={60} outerRadius={100} paddingAngle={3}>
+                  <Pie data={byTag} dataKey="value" nameKey="name" innerRadius={50} outerRadius={90} paddingAngle={3}>
                     {byTag.map((d, i) => <Cell key={i} fill={d.color} />)}
                   </Pie>
                   <Tooltip formatter={(v: any) => formatMoney(Number(v))} />
@@ -121,12 +129,12 @@ function Dashboard() {
 
         <Card title="By family member">
           {byMember.length === 0 ? <Empty msg="No activity in this period yet." /> : (
-            <div className="h-72">
+            <div className="h-64 sm:h-72">
               <ResponsiveContainer>
                 <BarChart data={byMember}>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                  <XAxis dataKey="name" stroke="var(--muted-foreground)" fontSize={12} />
-                  <YAxis stroke="var(--muted-foreground)" fontSize={12} />
+                  <XAxis dataKey="name" stroke="var(--muted-foreground)" fontSize={11} />
+                  <YAxis stroke="var(--muted-foreground)" fontSize={11} />
                   <Tooltip formatter={(v: any) => formatMoney(Number(v))} />
                   <Bar dataKey="income" fill="var(--success)" radius={[8, 8, 0, 0]} />
                   <Bar dataKey="expense" fill="var(--primary)" radius={[8, 8, 0, 0]} />
@@ -141,17 +149,17 @@ function Dashboard() {
         {filtered.slice(0, 8).length === 0 ? <Empty msg="No transactions in this period." /> : (
           <ul className="divide-y divide-border">
             {filtered.slice(0, 8).map((t) => (
-              <li key={t.id} className="flex items-center justify-between py-3">
-                <div className="flex items-center gap-3">
-                  <div className="grid h-9 w-9 place-items-center rounded-xl text-white" style={{ background: t.type === "income" ? "var(--success)" : "var(--primary)" }}>
+              <li key={t.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 py-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="grid h-8 w-8 sm:h-9 sm:w-9 shrink-0 place-items-center rounded-xl text-white font-bold" style={{ background: t.type === "income" ? "var(--success)" : "var(--primary)" }}>
                     {t.type === "income" ? "+" : "−"}
                   </div>
-                  <div>
-                    <div className="text-sm font-medium">{t.tag_id ? tagMap[t.tag_id]?.name : "Untagged"}</div>
-                    <div className="text-xs text-muted-foreground">{memberMap[t.user_id]?.full_name} · {new Date(t.occurred_on).toLocaleDateString()}</div>
+                  <div className="min-w-0">
+                    <div className="text-xs sm:text-sm font-medium truncate">{t.tag_id ? tagMap[t.tag_id]?.name : "Untagged"}</div>
+                    <div className="text-[11px] text-muted-foreground">{memberMap[t.user_id]?.full_name} · {new Date(t.occurred_on).toLocaleDateString()}</div>
                   </div>
                 </div>
-                <div className={`font-semibold ${t.type === "income" ? "text-success" : "text-foreground"}`}>
+                <div className={`font-semibold text-sm sm:text-base pl-11 sm:pl-0 ${t.type === "income" ? "text-success" : "text-foreground"}`}>
                   {t.type === "income" ? "+" : "−"}{formatMoney(Number(t.amount))}
                 </div>
               </li>
@@ -164,21 +172,21 @@ function Dashboard() {
 }
 
 function Pill({ active, children, onClick }: { active: boolean; children: React.ReactNode; onClick: () => void }) {
-  return <button onClick={onClick} className={`rounded-full px-4 py-1.5 text-sm font-medium ${active ? "bg-primary text-primary-foreground" : "bg-card border border-border text-foreground hover:bg-secondary"}`}>{children}</button>;
+  return <button onClick={onClick} className={`rounded-full px-3.5 py-1.5 text-xs sm:text-sm font-medium whitespace-nowrap ${active ? "bg-primary text-primary-foreground" : "bg-card border border-border text-foreground hover:bg-secondary"}`}>{children}</button>;
 }
 
 function StatCard({ label, value, icon: Icon, accent }: { label: string; value: number; icon: any; accent: "success" | "destructive" | "primary" }) {
   const colors = { success: "var(--success)", destructive: "var(--destructive)", primary: "var(--primary)" };
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
-      className="rounded-3xl border border-border bg-card p-5 shadow-[var(--shadow-soft)]">
+      className="rounded-3xl border border-border bg-card p-4 sm:p-5 shadow-[var(--shadow-soft)]">
       <div className="flex items-center justify-between">
-        <span className="text-sm font-medium text-muted-foreground">{label}</span>
-        <div className="grid h-9 w-9 place-items-center rounded-xl text-white" style={{ background: colors[accent] }}>
+        <span className="text-xs sm:text-sm font-medium text-muted-foreground">{label}</span>
+        <div className="grid h-8 w-8 sm:h-9 sm:w-9 place-items-center rounded-xl text-white" style={{ background: colors[accent] }}>
           <Icon className="h-4 w-4" />
         </div>
       </div>
-      <div className="mt-3 font-display text-3xl font-bold">{formatMoney(value)}</div>
+      <div className="mt-2 sm:mt-3 font-display text-2xl sm:text-3xl font-bold truncate">{formatMoney(value)}</div>
     </motion.div>
   );
 }

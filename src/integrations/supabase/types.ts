@@ -422,6 +422,177 @@ export type Database = {
           },
         ]
       }
+      businesses: {
+        Row: {
+          color: string
+          created_at: string
+          description: string | null
+          family_id: string
+          id: string
+          is_active: boolean
+          name: string
+          user_id: string
+        }
+        Insert: {
+          color?: string
+          created_at?: string
+          description?: string | null
+          family_id: string
+          id?: string
+          is_active?: boolean
+          name: string
+          user_id: string
+        }
+        Update: {
+          color?: string
+          created_at?: string
+          description?: string | null
+          family_id?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "businesses_family_id_fkey"
+            columns: ["family_id"]
+            isOneToOne: false
+            referencedRelation: "families"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      business_clients: {
+        Row: {
+          billing_day: number
+          business_id: string
+          created_at: string
+          email: string | null
+          family_id: string
+          id: string
+          is_active: boolean
+          monthly_amount: number
+          name: string
+          notes: string | null
+          phone: string | null
+          plan_name: string
+          start_date: string
+          user_id: string
+        }
+        Insert: {
+          billing_day?: number
+          business_id: string
+          created_at?: string
+          email?: string | null
+          family_id: string
+          id?: string
+          is_active?: boolean
+          monthly_amount?: number
+          name: string
+          notes?: string | null
+          phone?: string | null
+          plan_name?: string
+          start_date?: string
+          user_id: string
+        }
+        Update: {
+          billing_day?: number
+          business_id?: string
+          created_at?: string
+          email?: string | null
+          family_id?: string
+          id?: string
+          is_active?: boolean
+          monthly_amount?: number
+          name?: string
+          notes?: string | null
+          phone?: string | null
+          plan_name?: string
+          start_date?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "business_clients_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "business_clients_family_id_fkey"
+            columns: ["family_id"]
+            isOneToOne: false
+            referencedRelation: "families"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      client_payments: {
+        Row: {
+          amount: number
+          business_id: string
+          client_id: string
+          created_at: string
+          family_id: string
+          id: string
+          method: string | null
+          note: string | null
+          paid_on: string
+          period_month: string
+          user_id: string
+        }
+        Insert: {
+          amount?: number
+          business_id: string
+          client_id: string
+          created_at?: string
+          family_id: string
+          id?: string
+          method?: string | null
+          note?: string | null
+          paid_on?: string
+          period_month: string
+          user_id: string
+        }
+        Update: {
+          amount?: number
+          business_id?: string
+          client_id?: string
+          created_at?: string
+          family_id?: string
+          id?: string
+          method?: string | null
+          note?: string | null
+          paid_on?: string
+          period_month?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_payments_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "client_payments_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "business_clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "client_payments_family_id_fkey"
+            columns: ["family_id"]
+            isOneToOne: false
+            referencedRelation: "families"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_roles: {
         Row: {
           created_at: string
@@ -462,6 +633,14 @@ export type Database = {
       accept_invitation: { Args: { _token: string }; Returns: string }
       create_family_with_admin: { Args: { _name: string }; Returns: string }
       get_user_family: { Args: { _user_id: string }; Returns: string }
+      remove_family_member: { Args: { _member_user_id: string }; Returns: boolean }
+      update_member_role: {
+        Args: {
+          _member_user_id: string
+          _new_role: Database["public"]["Enums"]["app_role"]
+        }
+        Returns: boolean
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
