@@ -15,6 +15,8 @@ function Family() {
   const [invites, setInvites] = useState<any[]>([]);
   const [inviteEmail, setInviteEmail] = useState("");
   const [creating, setCreating] = useState(false);
+  const [newFamilyName, setNewFamilyName] = useState("");
+  const [creatingFamily, setCreatingFamily] = useState(false);
   const [shownLink, setShownLink] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [, forceTick] = useState(0);
@@ -39,6 +41,20 @@ function Family() {
     setInvites(i.data ?? []);
   };
   useEffect(() => { load(); }, [profile?.family_id]);
+
+  const createFamily = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newFamilyName.trim()) return;
+    setCreatingFamily(true);
+    const { data, error } = await supabase.rpc("create_family_with_admin", { _name: newFamilyName.trim() });
+    setCreatingFamily(false);
+    if (error) {
+      toast.error(error.message);
+    } else {
+      toast.success("Household created successfully!");
+      await refresh();
+    }
+  };
 
   const isAdminUser = (uid: string) => roles.some((r) => r.user_id === uid && r.role === "admin");
   const getUserRole = (uid: string): "admin" | "member" =>
@@ -127,6 +143,39 @@ function Family() {
     if (hours > 0) return `${hours}h ${mins % 60}m left`;
     return `${mins}m left`;
   };
+
+  if (!profile?.family_id) {
+    return (
+      <div className="space-y-6 max-w-lg mx-auto py-8">
+        <header className="text-center">
+          <h1 className="font-display text-3xl font-bold">Set up your household</h1>
+          <p className="text-muted-foreground text-sm mt-1">Create your family group to invite members and manage shared expenses.</p>
+        </header>
+
+        <form onSubmit={createFamily} className="rounded-3xl border border-border bg-card p-6 shadow-[var(--shadow-soft)] space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-muted-foreground mb-1.5">Household / Family name</label>
+            <input
+              type="text"
+              required
+              value={newFamilyName}
+              onChange={(e) => setNewFamilyName(e.target.value)}
+              placeholder="e.g. The Ragesh Household"
+              className="w-full rounded-xl border border-input bg-background px-4 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={creatingFamily || !newFamilyName.trim()}
+            className="w-full rounded-full py-3 text-sm font-semibold text-primary-foreground disabled:opacity-60"
+            style={{ background: "var(--gradient-warm)" }}
+          >
+            {creatingFamily ? "Creating household…" : "Create Household & Become Admin"}
+          </button>
+        </form>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

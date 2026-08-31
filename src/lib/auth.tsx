@@ -33,10 +33,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   const loadProfile = async (uid: string) => {
-    const [{ data: p }, { data: roles }] = await Promise.all([
-      supabase.from("profiles").select("*").eq("id", uid).maybeSingle(),
-      supabase.from("user_roles").select("role").eq("user_id", uid),
-    ]);
+    let { data: p } = await supabase.from("profiles").select("*").eq("id", uid).maybeSingle();
+    if (!p) {
+      const { data: { user: currentUser } } = await supabase.auth.getUser();
+      const meta = currentUser?.user_metadata;
+      await supabase.from("profiles").upsert({
+        id: uid,
+        full_name: meta?.full_name || meta?.name || currentUser?.email?.split("@")[0] || "User",
+        email: currentUser?.email || null,
+        avatar_url: meta?.avatar_url || null,
+      });
+      const res = await supabase.from("profiles").select("*").eq("id", uid).maybeSingle();
+      p = res.data;
+    }
+    const { data: roles } = await supabase.from("user_roles").select("role").eq("user_id", uid);
     setProfile((p as Profile) ?? null);
     setIsAdmin(!!roles?.some((r) => r.role === "admin"));
   };
