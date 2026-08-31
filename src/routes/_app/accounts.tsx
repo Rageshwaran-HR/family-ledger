@@ -209,7 +209,7 @@ function AccountDialog({ account, onClose, onSaved }: { account?: any | null; on
   const [name, setName] = useState(account?.name ?? "");
   const [type, setType] = useState(account?.type ?? "bank");
   const [balance, setBalance] = useState(account ? String(account.balance) : "0");
-  const [currency, setCurrency] = useState(account?.currency ?? "USD");
+  const [currency, setCurrency] = useState(account?.currency ?? "INR");
   const [loading, setLoading] = useState(false);
 
   const isEdit = !!account;

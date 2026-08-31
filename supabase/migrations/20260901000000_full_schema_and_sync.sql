@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS public.accounts (
   name TEXT NOT NULL,
   type public.account_type NOT NULL DEFAULT 'bank',
   balance NUMERIC(14,2) NOT NULL DEFAULT 0,
-  currency TEXT NOT NULL DEFAULT 'USD',
+  currency TEXT NOT NULL DEFAULT 'INR',
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -532,8 +532,8 @@ BEGIN
 
   -- Seed default accounts (Cash and Main Bank)
   INSERT INTO public.accounts (family_id, user_id, name, type, balance, currency) VALUES
-    (_family_id, _uid, 'Cash Wallet', 'cash', 0.00, 'USD'),
-    (_family_id, _uid, 'Main Bank', 'bank', 0.00, 'USD')
+    (_family_id, _uid, 'Cash Wallet', 'cash', 0.00, 'INR'),
+    (_family_id, _uid, 'Main Bank', 'bank', 0.00, 'INR')
   ON CONFLICT DO NOTHING;
 
   -- Seed default tags
