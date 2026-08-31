@@ -91,10 +91,9 @@ function Dashboard() {
   const byMember = useMemo(() => {
     const m: Record<string, { income: number; expense: number }> = {};
     filtered.forEach((t) => {
-      if (t.type === "transfer") return;
       const name = memberMap[t.user_id]?.full_name || "Member";
       m[name] = m[name] || { income: 0, expense: 0 };
-      m[name][t.type as "income" | "expense"] += Number(t.amount);
+      m[name][t.type] += Number(t.amount);
     });
     return Object.entries(m).map(([name, v]) => ({ name, ...v }));
   }, [filtered, memberMap]);

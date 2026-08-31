@@ -4,23 +4,16 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { formatMoney } from "@/lib/format";
 import { toast } from "sonner";
-import { Plus, Trash2, X, Upload, FileSpreadsheet, Pencil, Search, Filter, Sparkles, Share2, Receipt, Briefcase, CheckCircle2, Camera, ImageIcon, Loader2 } from "lucide-react";
+import { Plus, Trash2, X, Upload, FileSpreadsheet, Pencil, Search, Filter } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import * as XLSX from "xlsx";
-import { parseBankOrUpiReceipt } from "@/lib/upi-receipt-parser";
-import Tesseract from "tesseract.js";
 
 export const Route = createFileRoute("/_app/transactions")({
   component: Transactions,
-  validateSearch: (s: Record<string, unknown>) => ({
-    new: s.new === "1" ? "1" : undefined,
-    share_text: typeof s.share_text === "string" ? s.share_text : typeof s.text === "string" ? (s.text as string) : undefined,
-    share_title: typeof s.share_title === "string" ? s.share_title : typeof s.title === "string" ? (s.title as string) : undefined,
-    shared_receipt: typeof s.shared_receipt === "string" ? (s.shared_receipt as string) : undefined,
-  }),
+  validateSearch: (s: Record<string, unknown>) => ({ new: s.new === "1" ? "1" : undefined }),
 });
 
-interface Tx { id: string; amount: number; type: "income" | "expense" | "transfer"; occurred_on: string; note: string | null; user_id: string; tag_id: string | null; account_id: string | null; to_account_id?: string | null; }
+interface Tx { id: string; amount: number; type: "income" | "expense"; occurred_on: string; note: string | null; user_id: string; tag_id: string | null; account_id: string | null; }
 
 function Transactions() {
   const search = Route.useSearch();
@@ -29,31 +22,26 @@ function Transactions() {
   const [tags, setTags] = useState<any[]>([]);
   const [accounts, setAccounts] = useState<any[]>([]);
   const [members, setMembers] = useState<any[]>([]);
-  const [clients, setClients] = useState<any[]>([]);
   const [open, setOpen] = useState(search.new === "1");
-  const [scanOpen, setScanOpen] = useState(!!search.share_text || !!search.share_title || !!search.shared_receipt);
-  const [initialSharedText, setInitialSharedText] = useState(search.share_text || search.share_title || "");
   const [editTx, setEditTx] = useState<Tx | null>(null);
   const [importOpen, setImportOpen] = useState(false);
-  const [filter, setFilter] = useState<"all" | "income" | "expense" | "transfer">("all");
+  const [filter, setFilter] = useState<"all" | "income" | "expense">("all");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [accountFilter, setAccountFilter] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
 
   const load = async () => {
     if (!profile?.family_id) return;
-    const [t, g, a, m, c] = await Promise.all([
+    const [t, g, a, m] = await Promise.all([
       supabase.from("transactions").select("*").order("occurred_on", { ascending: false }),
       supabase.from("tags").select("*"),
       supabase.from("accounts").select("*"),
       supabase.from("profiles").select("id,full_name").eq("family_id", profile.family_id),
-      supabase.from("business_clients").select("id,name,business_id,monthly_amount,is_active").eq("family_id", profile.family_id),
     ]);
     setTxs((t.data as Tx[]) ?? []);
     setTags(g.data ?? []);
     setAccounts(a.data ?? []);
     setMembers(m.data ?? []);
-    setClients(c.data ?? []);
   };
 
   useEffect(() => {
@@ -83,7 +71,6 @@ function Transactions() {
       "Amount": Number(t.amount),
       "Category": t.tag_id ? tagMap[t.tag_id]?.name || "" : "Uncategorized",
       "Account": t.account_id ? accountMap[t.account_id]?.name || "" : "",
-      "To Account": t.to_account_id ? accountMap[t.to_account_id]?.name || "" : "",
       "Member": memberMap[t.user_id]?.full_name || "",
       "Note": t.note || "",
     }));
@@ -98,7 +85,7 @@ function Transactions() {
     return txs.filter((t) => {
       if (filter !== "all" && t.type !== filter) return false;
       if (categoryFilter !== "all" && t.tag_id !== categoryFilter) return false;
-      if (accountFilter !== "all" && t.account_id !== accountFilter && t.to_account_id !== accountFilter) return false;
+      if (accountFilter !== "all" && t.account_id !== accountFilter) return false;
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
         const note = (t.note || "").toLowerCase();
@@ -122,12 +109,9 @@ function Transactions() {
       <header className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
         <div>
           <h1 className="font-display text-3xl font-bold">Transactions</h1>
-          <p className="text-muted-foreground text-sm">All family income, expenses & internal transfers.</p>
+          <p className="text-muted-foreground text-sm">All family income & expenses.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <button onClick={() => setScanOpen(true)} className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 rounded-full border border-primary/40 bg-primary/10 px-3.5 py-2 text-xs font-semibold text-primary hover:bg-primary/20 transition-colors">
-            <Sparkles className="h-3.5 w-3.5" /> ⚡ Scan / Paste Receipt
-          </button>
           <button onClick={exportExcel} className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 rounded-full bg-card border border-border px-3.5 py-2 text-xs font-semibold hover:bg-secondary">
             <FileSpreadsheet className="h-3.5 w-3.5" /> Export
           </button>
@@ -143,14 +127,8 @@ function Transactions() {
       {/* Filters bar */}
       <div className="flex flex-col sm:flex-row sm:items-center gap-2.5">
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
-          {(["all", "income", "expense", "transfer"] as const).map((f) => (
-            <button key={f} onClick={() => setFilter(f)} className={`rounded-full px-3.5 py-1.5 text-xs font-semibold capitalize whitespace-nowrap ${
-              filter === f
-                ? f === "transfer" ? "bg-blue-600 text-white" : "bg-primary text-primary-foreground"
-                : "bg-card border border-border hover:bg-secondary"
-            }`}>
-              {f === "transfer" ? "🔄 Transfers" : f}
-            </button>
+          {(["all", "income", "expense"] as const).map((f) => (
+            <button key={f} onClick={() => setFilter(f)} className={`rounded-full px-3.5 py-1.5 text-xs font-semibold capitalize whitespace-nowrap ${filter === f ? "bg-primary text-primary-foreground" : "bg-card border border-border hover:bg-secondary"}`}>{f}</button>
           ))}
         </div>
 
@@ -192,71 +170,44 @@ function Transactions() {
           </div>
         ) : (
           <ul className="divide-y divide-border">
-            {filtered.map((t) => {
-              const fromAcc = t.account_id ? accountMap[t.account_id] : null;
-              const toAcc = t.to_account_id ? accountMap[t.to_account_id] : null;
-              const isTransfer = t.type === "transfer";
-              const isSelf = isTransfer && fromAcc && toAcc && fromAcc.user_id === toAcc.user_id;
-
-              return (
-                <li key={t.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 py-3.5 hover:bg-secondary/30 transition-colors">
-                  <div className="flex min-w-0 items-start sm:items-center gap-3">
-                    <div
-                      className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl text-white text-base font-bold ${
-                        isTransfer ? "bg-blue-600" : t.type === "income" ? "bg-success" : "bg-primary"
-                      }`}
-                    >
-                      {isTransfer ? "🔄" : t.type === "income" ? "+" : "−"}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        {isTransfer ? (
-                          <span className="rounded-full bg-blue-500/20 text-blue-700 dark:text-blue-300 px-2 py-0.5 text-[11px] font-semibold">
-                            {isSelf ? "Self Transfer" : "Family Transfer"}
-                          </span>
-                        ) : t.tag_id && (
-                          <span className="rounded-full px-2 py-0.5 text-[11px] font-medium" style={{ background: (tagMap[t.tag_id]?.color || "#a98467") + "33", color: tagMap[t.tag_id]?.color || "#a98467" }}>
-                            {tagMap[t.tag_id]?.name || "Tag"}
-                          </span>
-                        )}
-                        {isTransfer ? (
-                          <span className="text-xs font-semibold text-foreground">
-                            {fromAcc?.name || "Account"} ({memberMap[fromAcc?.user_id]?.full_name?.split(" ")[0] || "User"}) ➔ {toAcc?.name || "Account"} ({memberMap[toAcc?.user_id]?.full_name?.split(" ")[0] || "User"})
-                          </span>
-                        ) : (
-                          t.account_id && accountMap[t.account_id] && (
-                            <span className="rounded-full bg-secondary px-2 py-0.5 text-[11px] text-muted-foreground">
-                              {accountMap[t.account_id].name}
-                            </span>
-                          )
-                        )}
-                        <span className="truncate text-xs sm:text-sm text-muted-foreground font-normal">{t.note || (isTransfer ? "Account Transfer" : "No note")}</span>
-                      </div>
-                      <div className="text-[11px] text-muted-foreground mt-0.5">
-                        {memberMap[t.user_id]?.full_name || "Member"} · {new Date(t.occurred_on).toLocaleDateString()}
-                      </div>
-                    </div>
+            {filtered.map((t) => (
+              <li key={t.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 py-3.5 hover:bg-secondary/30 transition-colors">
+                <div className="flex min-w-0 items-start sm:items-center gap-3">
+                  <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl text-white text-base font-bold" style={{ background: t.type === "income" ? "var(--success)" : "var(--primary)" }}>
+                    {t.type === "income" ? "+" : "−"}
                   </div>
-                  <div className="flex items-center justify-between sm:justify-end gap-3 pl-12 sm:pl-0">
-                    <div className={`font-semibold text-sm sm:text-base ${
-                      isTransfer ? "text-blue-600 dark:text-blue-400" : t.type === "income" ? "text-success" : ""
-                    }`}>
-                      {isTransfer ? "🔄 " : t.type === "income" ? "+" : "−"}{formatMoney(Number(t.amount))}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {t.tag_id && (
+                        <span className="rounded-full px-2 py-0.5 text-[11px] font-medium" style={{ background: (tagMap[t.tag_id]?.color || "#a98467") + "33", color: tagMap[t.tag_id]?.color || "#a98467" }}>
+                          {tagMap[t.tag_id]?.name || "Tag"}
+                        </span>
+                      )}
+                      {t.account_id && accountMap[t.account_id] && (
+                        <span className="rounded-full bg-secondary px-2 py-0.5 text-[11px] text-muted-foreground">
+                          {accountMap[t.account_id].name}
+                        </span>
+                      )}
+                      <span className="truncate text-xs sm:text-sm text-muted-foreground font-normal">{t.note || "No note"}</span>
                     </div>
-                    {(t.user_id === user?.id || isAdmin) && (
-                      <div className="flex items-center gap-1">
-                        <button onClick={() => { setEditTx(t); setOpen(true); }} title="Edit" className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-primary">
-                          <Pencil className="h-3.5 w-3.5" />
-                        </button>
-                        <button onClick={() => del(t.id)} title="Delete" className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-destructive">
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </div>
-                    )}
+                    <div className="text-[11px] text-muted-foreground mt-0.5">{memberMap[t.user_id]?.full_name || "Member"} · {new Date(t.occurred_on).toLocaleDateString()}</div>
                   </div>
-                </li>
-              );
-            })}
+                </div>
+                <div className="flex items-center justify-between sm:justify-end gap-3 pl-12 sm:pl-0">
+                  <div className={`font-semibold text-sm sm:text-base ${t.type === "income" ? "text-success" : ""}`}>{t.type === "income" ? "+" : "−"}{formatMoney(Number(t.amount))}</div>
+                  {(t.user_id === user?.id || isAdmin) && (
+                    <div className="flex items-center gap-1">
+                      <button onClick={() => { setEditTx(t); setOpen(true); }} title="Edit" className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-primary">
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                      <button onClick={() => del(t.id)} title="Delete" className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-destructive">
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </li>
+            ))}
           </ul>
         )}
       </div>
@@ -272,19 +223,6 @@ function Transactions() {
           />
         )}
       </AnimatePresence>
-      <AnimatePresence>
-        {scanOpen && (
-          <ReceiptParserDialog
-            initialText={initialSharedText}
-            tags={tags}
-            accounts={accounts}
-            members={members}
-            clients={clients}
-            onClose={() => { setScanOpen(false); setInitialSharedText(""); }}
-            onSaved={() => { load(); setScanOpen(false); setInitialSharedText(""); }}
-          />
-        )}
-      </AnimatePresence>
       <AnimatePresence>{importOpen && <ImportDialog onClose={() => setImportOpen(false)} onImported={() => { load(); setImportOpen(false); }} tags={tags} accounts={accounts} />}</AnimatePresence>
     </div>
   );
@@ -292,12 +230,11 @@ function Transactions() {
 
 function TxDialog({ tx, onClose, onSaved, tags, accounts }: { tx?: Tx | null; onClose: () => void; onSaved: () => void; tags: any[]; accounts: any[] }) {
   const { profile, user } = useAuth();
-  const [type, setType] = useState<"expense" | "income" | "transfer">(tx?.type ?? "expense");
+  const [type, setType] = useState<"expense" | "income">(tx?.type ?? "expense");
   const [amount, setAmount] = useState(tx ? String(tx.amount) : "");
   const [date, setDate] = useState(tx?.occurred_on ?? new Date().toISOString().slice(0, 10));
   const [tagId, setTagId] = useState<string>(tx?.tag_id ?? tags[0]?.id ?? "");
   const [accountId, setAccountId] = useState<string>(tx?.account_id ?? accounts[0]?.id ?? "");
-  const [toAccountId, setToAccountId] = useState<string>(tx?.to_account_id ?? accounts[1]?.id ?? accounts[0]?.id ?? "");
   const [note, setNote] = useState(tx?.note ?? "");
   const [loading, setLoading] = useState(false);
 
@@ -313,10 +250,6 @@ function TxDialog({ tx, onClose, onSaved, tags, accounts }: { tx?: Tx | null; on
       toast.error("Please select a bank account or cash wallet for this transaction.");
       return;
     }
-    if (type === "transfer" && accountId === toAccountId) {
-      toast.error("Source and destination accounts must be different.");
-      return;
-    }
     if (!user) return;
     setLoading(true);
 
@@ -325,9 +258,8 @@ function TxDialog({ tx, onClose, onSaved, tags, accounts }: { tx?: Tx | null; on
         type,
         amount: Number(amount),
         occurred_on: date,
-        tag_id: type === "transfer" ? null : tagId || null,
+        tag_id: tagId || null,
         account_id: accountId,
-        to_account_id: type === "transfer" ? toAccountId : null,
         note: note.trim() || null,
       }).eq("id", tx.id);
       setLoading(false);
@@ -340,14 +272,13 @@ function TxDialog({ tx, onClose, onSaved, tags, accounts }: { tx?: Tx | null; on
         type,
         amount: Number(amount),
         occurred_on: date,
-        tag_id: type === "transfer" ? null : tagId || null,
+        tag_id: tagId || null,
         account_id: accountId,
-        to_account_id: type === "transfer" ? toAccountId : null,
-        note: note.trim() || (type === "transfer" ? "Inter-account Transfer" : null),
+        note: note.trim() || null,
       });
       setLoading(false);
       if (error) { toast.error(error.message); return; }
-      toast.success(type === "transfer" ? "Transfer recorded" : "Transaction added");
+      toast.success("Transaction added");
     }
     onSaved();
   };
@@ -361,58 +292,29 @@ function TxDialog({ tx, onClose, onSaved, tags, accounts }: { tx?: Tx | null; on
           <button type="button" onClick={onClose} className="grid h-8 w-8 place-items-center rounded-lg hover:bg-secondary"><X className="h-4 w-4" /></button>
         </div>
 
-        <div className="grid grid-cols-3 gap-2">
-          <button type="button" onClick={() => setType("expense")} className={`rounded-xl py-2 text-xs sm:text-sm font-semibold transition-colors ${type === "expense" ? "bg-primary text-primary-foreground" : "bg-secondary"}`}>Expense</button>
-          <button type="button" onClick={() => setType("income")} className={`rounded-xl py-2 text-xs sm:text-sm font-semibold transition-colors ${type === "income" ? "bg-success text-success-foreground" : "bg-secondary"}`}>Income</button>
-          <button type="button" onClick={() => setType("transfer")} className={`rounded-xl py-2 text-xs sm:text-sm font-semibold transition-colors ${type === "transfer" ? "bg-blue-600 text-white" : "bg-secondary"}`}>🔄 Transfer</button>
+        <div className="grid grid-cols-2 gap-2">
+          <button type="button" onClick={() => setType("expense")} className={`rounded-xl py-2.5 text-sm font-semibold transition-colors ${type === "expense" ? "bg-primary text-primary-foreground" : "bg-secondary"}`}>Expense</button>
+          <button type="button" onClick={() => setType("income")} className={`rounded-xl py-2.5 text-sm font-semibold transition-colors ${type === "income" ? "bg-success text-success-foreground" : "bg-secondary"}`}>Income</button>
         </div>
 
         <div className="mt-4 space-y-3">
-          <Input label="Amount (₹)" type="number" step="0.01" min="0" value={amount} onChange={setAmount} required autoFocus />
+          <Input label="Amount" type="number" step="0.01" min="0" value={amount} onChange={setAmount} required autoFocus />
           <Input label="Date" type="date" value={date} onChange={setDate} required />
+          <Select label="Category" value={tagId} onChange={setTagId} options={[{ value: "", label: "None" }, ...tags.map((t) => ({ value: t.id, label: t.name }))]} />
           
-          {type === "transfer" ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <Select
-                label="From Account *"
-                value={accountId}
-                onChange={setAccountId}
-                required
-                options={accounts.map((a) => ({
-                  value: a.id,
-                  label: `${a.name} (${formatMoney(Number(a.balance))})`,
-                }))}
-              />
-              <Select
-                label="To Account *"
-                value={toAccountId}
-                onChange={setToAccountId}
-                required
-                options={accounts.map((a) => ({
-                  value: a.id,
-                  label: `${a.name} (${formatMoney(Number(a.balance))})`,
-                }))}
-              />
+          {accounts.length === 0 ? (
+            <div className="rounded-2xl border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive">
+              <strong>No accounts found:</strong> Please go to the <strong>Accounts</strong> tab and create a Bank Account or Cash Wallet first.
             </div>
           ) : (
-            <>
-              <Select label="Category" value={tagId} onChange={setTagId} options={[{ value: "", label: "None" }, ...tags.map((t) => ({ value: t.id, label: t.name }))]} />
-              
-              {accounts.length === 0 ? (
-                <div className="rounded-2xl border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive">
-                  <strong>No accounts found:</strong> Please go to the <strong>Accounts</strong> tab and create a Bank Account or Cash Wallet first.
-                </div>
-              ) : (
-                <Select label="Bank / Wallet Account *" value={accountId} onChange={setAccountId} required options={accounts.map((a) => ({ value: a.id, label: `${a.name} (${formatMoney(Number(a.balance))})` }))} />
-              )}
-            </>
+            <Select label="Bank / Wallet Account *" value={accountId} onChange={setAccountId} required options={accounts.map((a) => ({ value: a.id, label: `${a.name} (${formatMoney(Number(a.balance))})` }))} />
           )}
 
-          <Input label="Note (optional)" value={note} onChange={setNote} placeholder={type === "transfer" ? "e.g. Sent to Priya for groceries" : "Grocery store, coffee, etc."} />
+          <Input label="Note (optional)" value={note} onChange={setNote} placeholder="Grocery store, coffee, etc." />
         </div>
 
-        <button disabled={loading} className="mt-5 w-full rounded-full px-5 py-3 font-semibold text-primary-foreground disabled:opacity-60" style={{ background: "var(--gradient-warm)" }}>
-          {loading ? "Saving…" : isEdit ? "Update transaction" : type === "transfer" ? "Record Transfer" : "Add transaction"}
+        <button disabled={loading || accounts.length === 0} className="mt-5 w-full rounded-full px-5 py-3 font-semibold text-primary-foreground disabled:opacity-60" style={{ background: "var(--gradient-warm)" }}>
+          {loading ? "Saving…" : isEdit ? "Update transaction" : "Save transaction"}
         </button>
       </motion.form>
     </motion.div>
@@ -783,419 +685,3 @@ function ImportDialog({ onClose, onImported, tags, accounts }: { onClose: () => 
     </motion.div>
   );
 }
-
-/**
- * Universal UPI & Bank Receipt / SMS Parser Modal (Zero API, Works for any Banking/UPI App)
- */
-function ReceiptParserDialog({
-  initialText = "",
-  tags,
-  accounts,
-  members = [],
-  clients,
-  onClose,
-  onSaved,
-}: {
-  initialText?: string;
-  tags: any[];
-  accounts: any[];
-  members?: any[];
-  clients: any[];
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const { user, profile } = useAuth();
-  const [text, setText] = useState(initialText);
-  const [amount, setAmount] = useState("");
-  const [type, setType] = useState<"expense" | "income" | "transfer">("expense");
-  const [note, setNote] = useState("");
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
-  const [tagId, setTagId] = useState("");
-  const [accountId, setAccountId] = useState(accounts[0]?.id || "");
-  const [toAccountId, setToAccountId] = useState(accounts[1]?.id || accounts[0]?.id || "");
-  const [matchedClientId, setMatchedClientId] = useState<string>("");
-  const [loading, setLoading] = useState(false);
-  const [ocrLoading, setOcrLoading] = useState(false);
-  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-
-  // Process Image with OCR
-  const processImageFile = async (file: Blob | File) => {
-    try {
-      setOcrLoading(true);
-      const url = URL.createObjectURL(file);
-      setPreviewImageUrl(url);
-      
-      const { data } = await Tesseract.recognize(file, "eng", {
-        logger: (m) => console.log("OCR:", m),
-      });
-
-      const extractedText = data.text || "";
-      if (extractedText.trim()) {
-        setText(extractedText);
-        toast.success("Receipt screenshot text extracted!");
-      } else {
-        toast.error("Could not read text from image. Please enter details manually.");
-      }
-    } catch (err: any) {
-      toast.error(err.message || "Failed to scan image");
-    } finally {
-      setOcrLoading(false);
-    }
-  };
-
-  // Check if an image was shared via Service Worker Web Share Target
-  useEffect(() => {
-    if (typeof window === "undefined" || !("caches" in window)) return;
-    (async () => {
-      try {
-        const cache = await caches.open("receipt-shares-v1");
-        const match = await cache.match("latest-shared-receipt");
-        if (match) {
-          const blob = await match.blob();
-          await cache.delete("latest-shared-receipt");
-          if (blob && blob.size > 0) {
-            await processImageFile(blob);
-          }
-        }
-      } catch (e) {
-        console.warn("Could not retrieve shared receipt image:", e);
-      }
-    })();
-  }, []);
-
-  // Parse text whenever changed
-  useEffect(() => {
-    if (!text.trim()) return;
-    const p = parseBankOrUpiReceipt(text);
-    if (p.amount !== null) setAmount(String(p.amount));
-    
-    // Find matching accounts by account_number
-    let detectedFromId = "";
-    let detectedToId = "";
-
-    if (p.fromAccountMask) {
-      const match = accounts.find((a) => a.account_number?.includes(p.fromAccountMask!) || a.name.includes(p.fromAccountMask!));
-      if (match) detectedFromId = match.id;
-    }
-    if (p.toAccountMask) {
-      const match = accounts.find((a) => a.account_number?.includes(p.toAccountMask!) || a.name.includes(p.toAccountMask!));
-      if (match) detectedToId = match.id;
-    }
-    if (p.accountMask && !detectedFromId) {
-      const match = accounts.find((a) => a.account_number?.includes(p.accountMask!) || a.name.includes(p.accountMask!));
-      if (match) detectedFromId = match.id;
-    }
-
-    if (detectedFromId) setAccountId(detectedFromId);
-    if (detectedToId && detectedToId !== detectedFromId) setToAccountId(detectedToId);
-
-    // 1. Check if recipient name matches a Family Member
-    const matchedFamilyMember = members.find((m) =>
-      m.id !== user?.id &&
-      m.full_name &&
-      (text.toLowerCase().includes(m.full_name.toLowerCase()) ||
-       (p.merchantOrSender && p.merchantOrSender.length > 2 && m.full_name.toLowerCase().includes(p.merchantOrSender.toLowerCase())) ||
-       (p.merchantOrSender && p.merchantOrSender.length > 2 && text.toLowerCase().includes(m.full_name.split(" ")[0].toLowerCase())))
-    );
-
-    if (matchedFamilyMember) {
-      const memberAcc = accounts.find((a) => a.user_id === matchedFamilyMember.id);
-      if (memberAcc) setToAccountId(memberAcc.id);
-      setType("transfer");
-      setNote(`Family Transfer to ${matchedFamilyMember.full_name}${p.upiRef ? ` (Ref: ${p.upiRef})` : ""}`);
-    } else if (p.isSelfTransfer || (detectedFromId && detectedToId && detectedFromId !== detectedToId)) {
-      setType("transfer");
-      setNote(`Self Transfer between accounts${p.upiRef ? ` (Ref: ${p.upiRef})` : ""}`);
-    } else {
-      setType(p.type);
-      setNote(p.merchantOrSender + (p.upiRef ? ` (Ref: ${p.upiRef})` : ""));
-    }
-
-    setDate(p.date);
-
-    // Auto-match tag
-    const matchedTag = tags.find((t) => t.name.toLowerCase() === p.categorySuggestion.toLowerCase());
-    if (matchedTag) setTagId(matchedTag.id);
-    else if (tags[0]) setTagId(tags[0].id);
-
-    // Auto-match business client
-    if (p.type === "income" && clients.length > 0) {
-      const mClient = clients.find((c) =>
-        text.toLowerCase().includes(c.name.toLowerCase()) ||
-        p.merchantOrSender.toLowerCase().includes(c.name.toLowerCase())
-      );
-      if (mClient) setMatchedClientId(mClient.id);
-      else setMatchedClientId("");
-    }
-  }, [text, tags, accounts, members, clients, user]);
-
-  const save = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!profile?.family_id || !user) return;
-    if (!amount || Number(amount) <= 0) {
-      toast.error("Please enter a valid amount");
-      return;
-    }
-    if (!accountId) {
-      toast.error("Please select a bank account or wallet");
-      return;
-    }
-
-    setLoading(true);
-    try {
-      if (type === "transfer") {
-        if (accountId === toAccountId) {
-          throw new Error("Source and destination accounts must be different");
-        }
-        const fromAcc = accounts.find((a) => a.id === accountId);
-        const toAcc = accounts.find((a) => a.id === toAccountId);
-        if (!fromAcc || !toAcc) throw new Error("Accounts not found");
-
-        const val = Number(amount);
-        const [resFrom, resTo, resTx] = await Promise.all([
-          supabase.from("accounts").update({ balance: Number(fromAcc.balance) - val }).eq("id", accountId),
-          supabase.from("accounts").update({ balance: Number(toAcc.balance) + val }).eq("id", toAccountId),
-          supabase.from("transactions").insert({
-            family_id: profile.family_id,
-            user_id: user.id,
-            account_id: accountId,
-            to_account_id: toAccountId,
-            type: "transfer" as any,
-            amount: val,
-            occurred_on: date,
-            note: note.trim() || "Inter-account Transfer",
-          }),
-        ]);
-        if (resFrom.error || resTo.error) throw resFrom.error || resTo.error;
-
-        toast.success(`Transferred ${formatMoney(val)} from ${fromAcc.name} to ${toAcc.name}`);
-        onSaved();
-        return;
-      }
-
-      // If matched with business client, also record client payment
-      if (type === "income" && matchedClientId) {
-        const client = clients.find((c) => c.id === matchedClientId);
-        if (client) {
-          await supabase.from("client_payments").insert({
-            family_id: profile.family_id,
-            business_id: client.business_id,
-            client_id: client.id,
-            amount: Number(amount),
-            payment_date: date,
-            note: `UPI Receipt Sync: ${note}`,
-          });
-          toast.success(`Client ${client.name} payment recorded!`);
-        }
-      }
-
-      // Record transaction
-      const { error } = await supabase.from("transactions").insert({
-        family_id: profile.family_id,
-        user_id: user.id,
-        account_id: accountId,
-        tag_id: tagId || null,
-        type,
-        amount: Number(amount),
-        occurred_on: date,
-        note: note.trim() || null,
-      });
-
-      if (error) throw error;
-      toast.success("Receipt transaction recorded in ledger!");
-      onSaved();
-    } catch (err: any) {
-      toast.error(err.message || "Failed to save");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={onClose}>
-      <motion.form initial={{ scale: 0.95 }} animate={{ scale: 1 }} onClick={(e) => e.stopPropagation()} onSubmit={save} className="w-full max-w-lg rounded-3xl border border-border bg-card p-6 shadow-[var(--shadow-elevated)] space-y-4 max-h-[92vh] overflow-y-auto">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="grid h-9 w-9 place-items-center rounded-xl bg-primary/10 text-primary">
-              <Sparkles className="h-5 w-5" />
-            </div>
-            <div>
-              <h2 className="font-display text-lg font-bold">Paste / Scan UPI & Bank Receipt</h2>
-              <p className="text-xs text-muted-foreground">Works with GPay, Super.money, PhonePe, Paytm & SMS</p>
-            </div>
-          </div>
-          <button type="button" onClick={onClose} className="text-muted-foreground hover:text-foreground">
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-
-        {/* Upload Screenshot Option */}
-        <div className="flex items-center gap-2">
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) processImageFile(file);
-            }}
-          />
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            className="flex-1 inline-flex items-center justify-center gap-2 rounded-2xl border border-dashed border-primary/40 bg-primary/5 py-2.5 px-3 text-xs font-semibold text-primary hover:bg-primary/10 transition-colors"
-          >
-            <Camera className="h-4 w-4" /> 📸 Scan Screenshot from Gallery / Super.money
-          </button>
-        </div>
-
-        {ocrLoading && (
-          <div className="rounded-2xl border border-primary/30 bg-primary/10 p-3 text-center text-xs font-semibold text-primary flex items-center justify-center gap-2 animate-pulse">
-            <Loader2 className="h-4 w-4 animate-spin" /> Scanning receipt screenshot with OCR…
-          </div>
-        )}
-
-        {previewImageUrl && !ocrLoading && (
-          <div className="relative rounded-2xl overflow-hidden border border-border max-h-32 bg-black/5 flex items-center justify-center">
-            <img src={previewImageUrl} alt="Receipt preview" className="max-h-32 object-contain" />
-            <button
-              type="button"
-              onClick={() => { setPreviewImageUrl(null); setText(""); }}
-              className="absolute top-2 right-2 rounded-full bg-black/60 p-1 text-white hover:bg-black"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        )}
-
-        {/* Textarea */}
-        <label className="block">
-          <span className="mb-1 block text-xs font-semibold text-foreground">
-            Paste Receipt Text or Bank SMS:
-          </span>
-          <textarea
-            rows={3}
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            placeholder="e.g. Paid ₹450 to Swiggy on Google Pay (UPI Ref: 482910394812)... or 'Transferred ₹5,000 to Priya Ramesh'"
-            className="w-full rounded-2xl border border-input bg-background p-3 text-xs outline-none focus:border-primary font-mono"
-            autoFocus
-          />
-        </label>
-
-        {/* Live Extracted Fields */}
-        <div className="rounded-2xl border border-border/80 bg-secondary/30 p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Parsed Transaction Details</span>
-            <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${
-              type === "income"
-                ? "bg-emerald-500/20 text-emerald-700 dark:text-emerald-300"
-                : type === "transfer"
-                ? "bg-blue-500/20 text-blue-700 dark:text-blue-300"
-                : "bg-primary/20 text-primary"
-            }`}>
-              {type === "income" ? "Income / Credit" : type === "transfer" ? "🔄 Self-Pay / Transfer" : "Expense / Debit"}
-            </span>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <label className="block">
-              <span className="mb-1 block text-xs font-medium text-muted-foreground">Type</span>
-              <select value={type} onChange={(e) => setType(e.target.value as any)} className="w-full rounded-xl border border-input bg-background px-3 py-2 text-xs">
-                <option value="expense">Expense</option>
-                <option value="income">Income</option>
-                <option value="transfer">🔄 Self Transfer</option>
-              </select>
-            </label>
-            <label className="block">
-              <span className="mb-1 block text-xs font-medium text-muted-foreground">Amount (₹)</span>
-              <input type="number" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} className="w-full rounded-xl border border-input bg-background px-3 py-2 text-xs font-bold text-base" required />
-            </label>
-          </div>
-
-          {type === "transfer" ? (
-            <div className="grid grid-cols-2 gap-3">
-              <label className="block">
-                <span className="mb-1 block text-xs font-medium text-muted-foreground">From Account</span>
-                <select value={accountId} onChange={(e) => setAccountId(e.target.value)} className="w-full rounded-xl border border-input bg-background px-3 py-2 text-xs">
-                  {accounts.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.name} {a.account_number ? `(•••• ${a.account_number.slice(-4)})` : ""}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="block">
-                <span className="mb-1 block text-xs font-medium text-muted-foreground">To Account</span>
-                <select value={toAccountId} onChange={(e) => setToAccountId(e.target.value)} className="w-full rounded-xl border border-input bg-background px-3 py-2 text-xs">
-                  {accounts.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.name} {a.account_number ? `(•••• ${a.account_number.slice(-4)})` : ""}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-          ) : (
-            <div className="grid grid-cols-2 gap-3">
-              <label className="block">
-                <span className="mb-1 block text-xs font-medium text-muted-foreground">Bank Account / Wallet</span>
-                <select value={accountId} onChange={(e) => setAccountId(e.target.value)} className="w-full rounded-xl border border-input bg-background px-3 py-2 text-xs">
-                  {accounts.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.name} {a.account_number ? `(•••• ${a.account_number.slice(-4)})` : ""} ({formatMoney(Number(a.balance))})
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="block">
-                <span className="mb-1 block text-xs font-medium text-muted-foreground">Category Tag</span>
-                <select value={tagId} onChange={(e) => setTagId(e.target.value)} className="w-full rounded-xl border border-input bg-background px-3 py-2 text-xs">
-                  <option value="">— Uncategorized —</option>
-                  {tags.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-                </select>
-              </label>
-            </div>
-          )}
-
-          <div className="grid grid-cols-2 gap-3">
-            <label className="block">
-              <span className="mb-1 block text-xs font-medium text-muted-foreground">Date</span>
-              <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-full rounded-xl border border-input bg-background px-3 py-2 text-xs" required />
-            </label>
-            <label className="block">
-              <span className="mb-1 block text-xs font-medium text-muted-foreground">Description / Note</span>
-              <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Swiggy Food, Petrol, etc." className="w-full rounded-xl border border-input bg-background px-3 py-2 text-xs" />
-            </label>
-          </div>
-
-          {/* Business Client Matching if Income */}
-          {type === "income" && clients.length > 0 && (
-            <div className="border-t border-border pt-2.5">
-              <label className="block">
-                <span className="mb-1 block text-xs font-semibold text-blue-600 dark:text-blue-400 flex items-center gap-1">
-                  <Briefcase className="h-3.5 w-3.5" /> Match Business Client (Auto-clears monthly plan)
-                </span>
-                <select value={matchedClientId} onChange={(e) => setMatchedClientId(e.target.value)} className="w-full rounded-xl border border-blue-500/30 bg-blue-50/50 dark:bg-blue-950/30 px-3 py-2 text-xs text-blue-900 dark:text-blue-200">
-                  <option value="">— Personal Income (Not a Client) —</option>
-                  {clients.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      👤 Client: {c.name} ({formatMoney(Number(c.monthly_amount))}/mo)
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-          )}
-        </div>
-
-        <button disabled={loading} className="w-full rounded-full px-5 py-3 font-semibold text-primary-foreground disabled:opacity-60 shadow-[var(--shadow-soft)]" style={{ background: "var(--gradient-warm)" }}>
-          {loading ? "Recording…" : type === "transfer" ? "Execute Self-Transfer" : "Save Transaction to Ledger"}
-        </button>
-      </motion.form>
-    </motion.div>
-  );
-}
-

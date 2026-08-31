@@ -72,10 +72,8 @@ CREATE TABLE IF NOT EXISTS public.accounts (
   type public.account_type NOT NULL DEFAULT 'bank',
   balance NUMERIC(14,2) NOT NULL DEFAULT 0,
   currency TEXT NOT NULL DEFAULT 'INR',
-  account_number TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-ALTER TABLE public.accounts ADD COLUMN IF NOT EXISTS account_number TEXT;
 
 -- Category Tags
 CREATE TABLE IF NOT EXISTS public.tags (
@@ -96,7 +94,6 @@ CREATE TABLE IF NOT EXISTS public.transactions (
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   family_id UUID NOT NULL REFERENCES public.families(id) ON DELETE CASCADE,
   account_id UUID REFERENCES public.accounts(id) ON DELETE SET NULL,
-  to_account_id UUID REFERENCES public.accounts(id) ON DELETE SET NULL,
   tag_id UUID REFERENCES public.tags(id) ON DELETE SET NULL,
   type public.transaction_type NOT NULL,
   amount NUMERIC(14,2) NOT NULL CHECK (amount >= 0),
@@ -104,7 +101,6 @@ CREATE TABLE IF NOT EXISTS public.transactions (
   note TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS to_account_id UUID REFERENCES public.accounts(id) ON DELETE SET NULL;
 
 -- Loans
 CREATE TABLE IF NOT EXISTS public.loans (
@@ -484,11 +480,6 @@ BEGIN
         UPDATE public.accounts SET balance = balance - OLD.amount WHERE id = OLD.account_id;
       ELSIF OLD.type = 'expense' THEN
         UPDATE public.accounts SET balance = balance + OLD.amount WHERE id = OLD.account_id;
-      ELSIF OLD.type = 'transfer' THEN
-        UPDATE public.accounts SET balance = balance + OLD.amount WHERE id = OLD.account_id;
-        IF OLD.to_account_id IS NOT NULL THEN
-          UPDATE public.accounts SET balance = balance - OLD.amount WHERE id = OLD.to_account_id;
-        END IF;
       END IF;
     END IF;
   END IF;
@@ -500,11 +491,6 @@ BEGIN
         UPDATE public.accounts SET balance = balance + NEW.amount WHERE id = NEW.account_id;
       ELSIF NEW.type = 'expense' THEN
         UPDATE public.accounts SET balance = balance - NEW.amount WHERE id = NEW.account_id;
-      ELSIF NEW.type = 'transfer' THEN
-        UPDATE public.accounts SET balance = balance - NEW.amount WHERE id = NEW.account_id;
-        IF NEW.to_account_id IS NOT NULL THEN
-          UPDATE public.accounts SET balance = balance + NEW.amount WHERE id = NEW.to_account_id;
-        END IF;
       END IF;
     END IF;
   END IF;
@@ -686,79 +672,4 @@ FROM auth.users
 ON CONFLICT (id) DO UPDATE SET
   email = EXCLUDED.email,
   full_name = CASE WHEN profiles.full_name = '' THEN EXCLUDED.full_name ELSE profiles.full_name END;
-
--- =============================================================================
--- 9. REAL BANK SYNC & ACCOUNT AGGREGATOR (SETU AA)
--- =============================================================================
-
-CREATE TABLE IF NOT EXISTS public.bank_connections (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  family_id UUID NOT NULL REFERENCES public.families(id) ON DELETE CASCADE,
-  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  account_id UUID REFERENCES public.accounts(id) ON DELETE SET NULL,
-  bank_name TEXT NOT NULL,
-  account_number_mask TEXT,
-  consent_id TEXT,
-  status TEXT NOT NULL DEFAULT 'active',
-  last_synced_at TIMESTAMPTZ,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE TABLE IF NOT EXISTS public.bank_sync_feed (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  family_id UUID NOT NULL REFERENCES public.families(id) ON DELETE CASCADE,
-  user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
-  bank_connection_id UUID REFERENCES public.bank_connections(id) ON DELETE CASCADE,
-  account_id UUID REFERENCES public.accounts(id) ON DELETE SET NULL,
-  amount NUMERIC(14,2) NOT NULL,
-  type public.transaction_type NOT NULL,
-  description TEXT NOT NULL,
-  merchant_name TEXT,
-  upi_ref TEXT,
-  occurred_on DATE NOT NULL DEFAULT CURRENT_DATE,
-  status TEXT NOT NULL DEFAULT 'pending', -- pending, categorized, business_matched, ignored
-  linked_transaction_id UUID REFERENCES public.transactions(id) ON DELETE SET NULL,
-  linked_payment_id UUID REFERENCES public.client_payments(id) ON DELETE SET NULL,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE INDEX IF NOT EXISTS idx_bank_sync_family_status ON public.bank_sync_feed(family_id, status);
-CREATE INDEX IF NOT EXISTS idx_bank_conn_family ON public.bank_connections(family_id);
-
-ALTER TABLE public.bank_connections ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.bank_sync_feed ENABLE ROW LEVEL SECURITY;
-
-DROP POLICY IF EXISTS "bank_connections_select" ON public.bank_connections;
-CREATE POLICY "bank_connections_select" ON public.bank_connections FOR SELECT TO authenticated
-  USING (family_id = public.get_user_family(auth.uid()));
-
-DROP POLICY IF EXISTS "bank_connections_insert" ON public.bank_connections;
-CREATE POLICY "bank_connections_insert" ON public.bank_connections FOR INSERT TO authenticated
-  WITH CHECK (family_id = public.get_user_family(auth.uid()));
-
-DROP POLICY IF EXISTS "bank_connections_update" ON public.bank_connections;
-CREATE POLICY "bank_connections_update" ON public.bank_connections FOR UPDATE TO authenticated
-  USING (family_id = public.get_user_family(auth.uid()));
-
-DROP POLICY IF EXISTS "bank_connections_delete" ON public.bank_connections;
-CREATE POLICY "bank_connections_delete" ON public.bank_connections FOR DELETE TO authenticated
-  USING (family_id = public.get_user_family(auth.uid()));
-
-DROP POLICY IF EXISTS "bank_sync_feed_select" ON public.bank_sync_feed;
-CREATE POLICY "bank_sync_feed_select" ON public.bank_sync_feed FOR SELECT TO authenticated
-  USING (family_id = public.get_user_family(auth.uid()));
-
-DROP POLICY IF EXISTS "bank_sync_feed_insert" ON public.bank_sync_feed;
-CREATE POLICY "bank_sync_feed_insert" ON public.bank_sync_feed FOR INSERT TO authenticated
-  WITH CHECK (family_id = public.get_user_family(auth.uid()));
-
-DROP POLICY IF EXISTS "bank_sync_feed_update" ON public.bank_sync_feed;
-CREATE POLICY "bank_sync_feed_update" ON public.bank_sync_feed FOR UPDATE TO authenticated
-  USING (family_id = public.get_user_family(auth.uid()));
-
-DROP POLICY IF EXISTS "bank_sync_feed_delete" ON public.bank_sync_feed;
-CREATE POLICY "bank_sync_feed_delete" ON public.bank_sync_feed FOR DELETE TO authenticated
-  USING (family_id = public.get_user_family(auth.uid()));
-
 

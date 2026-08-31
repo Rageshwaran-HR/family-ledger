@@ -15,21 +15,5 @@
       "type": "image/svg+xml",
       "purpose": "any maskable"
     }
-  ],
-  "share_target": {
-    "action": "/transactions",
-    "method": "POST",
-    "enctype": "multipart/form-data",
-    "params": {
-      "title": "share_title",
-      "text": "share_text",
-      "url": "share_url",
-      "files": [
-        {
-          "name": "receipt_file",
-          "accept": ["image/*", "text/*", "image/png", "image/jpeg", "image/jpg", "image/webp"]
-        }
-      ]
-    }
-  }
+  ]
 }
