@@ -246,6 +246,10 @@ function TxDialog({ tx, onClose, onSaved, tags, accounts }: { tx?: Tx | null; on
       toast.error("Please set up your household first in the Family tab.");
       return;
     }
+    if (!accountId) {
+      toast.error("Please select a bank account or cash wallet for this transaction.");
+      return;
+    }
     if (!user) return;
     setLoading(true);
 
@@ -255,7 +259,7 @@ function TxDialog({ tx, onClose, onSaved, tags, accounts }: { tx?: Tx | null; on
         amount: Number(amount),
         occurred_on: date,
         tag_id: tagId || null,
-        account_id: accountId || null,
+        account_id: accountId,
         note: note.trim() || null,
       }).eq("id", tx.id);
       setLoading(false);
@@ -269,7 +273,7 @@ function TxDialog({ tx, onClose, onSaved, tags, accounts }: { tx?: Tx | null; on
         amount: Number(amount),
         occurred_on: date,
         tag_id: tagId || null,
-        account_id: accountId || null,
+        account_id: accountId,
         note: note.trim() || null,
       });
       setLoading(false);
@@ -297,11 +301,19 @@ function TxDialog({ tx, onClose, onSaved, tags, accounts }: { tx?: Tx | null; on
           <Input label="Amount" type="number" step="0.01" min="0" value={amount} onChange={setAmount} required autoFocus />
           <Input label="Date" type="date" value={date} onChange={setDate} required />
           <Select label="Category" value={tagId} onChange={setTagId} options={[{ value: "", label: "None" }, ...tags.map((t) => ({ value: t.id, label: t.name }))]} />
-          <Select label="Account" value={accountId} onChange={setAccountId} options={[{ value: "", label: "None" }, ...accounts.map((a) => ({ value: a.id, label: a.name }))]} />
+          
+          {accounts.length === 0 ? (
+            <div className="rounded-2xl border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive">
+              <strong>No accounts found:</strong> Please go to the <strong>Accounts</strong> tab and create a Bank Account or Cash Wallet first.
+            </div>
+          ) : (
+            <Select label="Bank / Wallet Account *" value={accountId} onChange={setAccountId} required options={accounts.map((a) => ({ value: a.id, label: `${a.name} (${formatMoney(Number(a.balance))})` }))} />
+          )}
+
           <Input label="Note (optional)" value={note} onChange={setNote} placeholder="Grocery store, coffee, etc." />
         </div>
 
-        <button disabled={loading} className="mt-5 w-full rounded-full px-5 py-3 font-semibold text-primary-foreground disabled:opacity-60" style={{ background: "var(--gradient-warm)" }}>
+        <button disabled={loading || accounts.length === 0} className="mt-5 w-full rounded-full px-5 py-3 font-semibold text-primary-foreground disabled:opacity-60" style={{ background: "var(--gradient-warm)" }}>
           {loading ? "Saving…" : isEdit ? "Update transaction" : "Save transaction"}
         </button>
       </motion.form>

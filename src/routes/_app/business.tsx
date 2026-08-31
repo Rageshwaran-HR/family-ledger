@@ -555,13 +555,20 @@ function PaymentDialog({ client, accounts, month, alreadyPaid, onClose, onSaved 
   const [paidOn, setPaidOn] = useState(new Date().toISOString().slice(0, 10));
   const [method, setMethod] = useState("Cash");
   const [accountId, setAccountId] = useState<string>(accounts[0]?.id ?? "");
-  const [recordIncome, setRecordIncome] = useState(true);
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!profile?.family_id || !user) return;
+    if (!profile?.family_id) {
+      toast.error("Please set up your household first in the Family tab.");
+      return;
+    }
+    if (!accountId) {
+      toast.error("Please select the bank account or cash wallet to deposit this payment into.");
+      return;
+    }
+    if (!user) return;
     setSaving(true);
     const amt = Number(amount) || 0;
 
@@ -583,21 +590,21 @@ function PaymentDialog({ client, accounts, month, alreadyPaid, onClose, onSaved 
       return;
     }
 
-    // Optionally record income in the ledger
-    if (recordIncome && amt > 0) {
+    // Always record income in the ledger linked to the selected account
+    if (amt > 0) {
       await supabase.from("transactions").insert({
         user_id: user.id,
         family_id: profile.family_id,
         type: "income",
         amount: amt,
         occurred_on: paidOn,
-        account_id: accountId || null,
-        note: `Client payment: ${client.name} (${monthLabel(`${period}-01`)})${note ? ` - ${note.trim()}` : ""}`,
+        account_id: accountId,
+        note: `Business collection: ${client.name} (${monthLabel(`${period}-01`)})${note ? ` - ${note.trim()}` : ""}`,
       });
     }
 
     setSaving(false);
-    toast.success("Payment recorded");
+    toast.success("Payment recorded & deposited to account");
     onSaved();
   };
 
@@ -620,20 +627,23 @@ function PaymentDialog({ client, accounts, month, alreadyPaid, onClose, onSaved 
             </select>
           </div>
         </div>
+        
         <div>
-          <label className={labelCls}>Deposit into account (optional)</label>
-          <select className={inputCls} value={accountId} onChange={(e) => setAccountId(e.target.value)}>
-            <option value="">None / Cash on hand</option>
-            {accounts.map((a) => <option key={a.id} value={a.id}>{a.name} ({formatMoney(Number(a.balance))})</option>)}
-          </select>
+          <label className={labelCls}>Deposit into Account *</label>
+          {accounts.length === 0 ? (
+            <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive">
+              <strong>No accounts found:</strong> Please go to the <strong>Accounts</strong> tab and add a Bank or Cash account first.
+            </div>
+          ) : (
+            <select className={inputCls} value={accountId} onChange={(e) => setAccountId(e.target.value)} required>
+              {accounts.map((a) => <option key={a.id} value={a.id}>{a.name} ({formatMoney(Number(a.balance))})</option>)}
+            </select>
+          )}
         </div>
-        <label className="flex items-center gap-2 text-xs text-muted-foreground">
-          <input type="checkbox" checked={recordIncome} onChange={(e) => setRecordIncome(e.target.checked)} />
-          Record corresponding income in family ledger
-        </label>
+
         <div><label className={labelCls}>Note (optional)</label><input className={inputCls} value={note} onChange={(e) => setNote(e.target.value)} /></div>
-        <button type="submit" disabled={saving} className={submitCls} style={{ background: "var(--gradient-warm)" }}>
-          {saving ? "Saving…" : "Record payment"}
+        <button type="submit" disabled={saving || accounts.length === 0} className={submitCls} style={{ background: "var(--gradient-warm)" }}>
+          {saving ? "Saving…" : "Record payment & deposit"}
         </button>
       </form>
     </Shell>

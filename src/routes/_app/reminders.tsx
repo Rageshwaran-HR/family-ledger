@@ -32,12 +32,19 @@ function getNextDueDate(currentDateStr: string, recurrence: string): string {
 function Reminders() {
   const { profile, user, isAdmin } = useAuth();
   const [list, setList] = useState<Reminder[]>([]);
+  const [accounts, setAccounts] = useState<any[]>([]);
   const [open, setOpen] = useState(false);
   const [editingReminder, setEditingReminder] = useState<Reminder | null>(null);
+  const [payingReminder, setPayingReminder] = useState<Reminder | null>(null);
 
   const load = async () => {
-    const { data } = await supabase.from("reminders").select("*").order("due_date");
-    setList((data as Reminder[]) ?? []);
+    if (!profile?.family_id) return;
+    const [{ data: rData }, { data: aData }] = await Promise.all([
+      supabase.from("reminders").select("*").order("due_date"),
+      supabase.from("accounts").select("*").eq("family_id", profile.family_id).eq("is_active", true).order("name"),
+    ]);
+    setList((rData as Reminder[]) ?? []);
+    setAccounts(aData ?? []);
   };
 
   useEffect(() => {
@@ -50,9 +57,20 @@ function Reminders() {
     return () => { supabase.removeChannel(channel); };
   }, [profile?.family_id]);
 
-  const markPaid = async (r: Reminder) => {
-    if (!r.is_paid && r.recurrence && r.recurrence !== "none") {
-      // For recurring reminders, prompt or roll forward
+  const handleCheckClick = (r: Reminder) => {
+    if (r.is_paid) {
+      // Undo
+      markPaidDirect(r, false);
+    } else if (r.amount && Number(r.amount) > 0) {
+      // Open pay dialog to select bank account
+      setPayingReminder(r);
+    } else {
+      markPaidDirect(r, true);
+    }
+  };
+
+  const markPaidDirect = async (r: Reminder, willBePaid: boolean) => {
+    if (willBePaid && r.recurrence && r.recurrence !== "none") {
       const nextDate = getNextDueDate(r.due_date, r.recurrence);
       const { error } = await supabase.from("reminders").update({
         due_date: nextDate,
@@ -62,11 +80,11 @@ function Reminders() {
       if (error) {
         toast.error(error.message);
       } else {
-        toast.success(`Marked paid! Next due date: ${formatDate(nextDate)}`);
+        toast.success(`Marked done! Next due date: ${formatDate(nextDate)}`);
         load();
       }
     } else {
-      const { error } = await supabase.from("reminders").update({ is_paid: !r.is_paid }).eq("id", r.id);
+      const { error } = await supabase.from("reminders").update({ is_paid: willBePaid }).eq("id", r.id);
       if (error) toast.error(error.message); else load();
     }
   };
@@ -111,7 +129,7 @@ function Reminders() {
                     {r.amount && <span className="font-semibold text-sm sm:text-base">{formatMoney(Number(r.amount))}</span>}
                     {(r.user_id === user?.id || isAdmin) && (
                       <div className="flex items-center gap-1">
-                        <button onClick={() => markPaid(r)} title="Mark as paid" className="grid h-8 w-8 place-items-center rounded-lg hover:bg-secondary text-success">
+                        <button onClick={() => handleCheckClick(r)} title="Pay & mark done" className="grid h-8 w-8 place-items-center rounded-lg hover:bg-secondary text-success">
                           <Check className="h-4 w-4" />
                         </button>
                         <button onClick={() => { setEditingReminder(r); setOpen(true); }} title="Edit" className="grid h-8 w-8 place-items-center rounded-lg hover:bg-secondary text-muted-foreground hover:text-primary">
@@ -144,7 +162,7 @@ function Reminders() {
                 </div>
                 {(r.user_id === user?.id || isAdmin) && (
                   <div className="flex items-center justify-between sm:justify-end gap-2 pl-12 sm:pl-0">
-                    <button onClick={() => markPaid(r)} className="text-xs text-primary font-medium hover:underline">Undo</button>
+                    <button onClick={() => handleCheckClick(r)} className="text-xs text-primary font-medium hover:underline">Undo</button>
                     <button onClick={() => del(r.id)} className="grid h-7 w-7 place-items-center rounded-lg text-muted-foreground hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button>
                   </div>
                 )}
@@ -160,6 +178,17 @@ function Reminders() {
             reminder={editingReminder}
             onClose={() => { setOpen(false); setEditingReminder(null); }}
             onSaved={() => { load(); setOpen(false); setEditingReminder(null); }}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {payingReminder && (
+          <PayBillDialog
+            reminder={payingReminder}
+            accounts={accounts}
+            onClose={() => setPayingReminder(null)}
+            onSaved={() => { load(); setPayingReminder(null); }}
           />
         )}
       </AnimatePresence>
@@ -248,3 +277,100 @@ function ReminderDialog({ reminder, onClose, onSaved }: { reminder?: Reminder | 
 function Field({ label, value, onChange, ...rest }: any) {
   return <label className="block"><span className="mb-1 block text-xs font-medium text-muted-foreground">{label}</span><input {...rest} value={value} onChange={(e) => onChange(e.target.value)} className="w-full rounded-xl border border-input bg-background px-3.5 py-2.5 text-sm focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none" /></label>;
 }
+
+function PayBillDialog({ reminder, accounts, onClose, onSaved }: { reminder: Reminder; accounts: any[]; onClose: () => void; onSaved: () => void }) {
+  const { profile, user } = useAuth();
+  const [amount, setAmount] = useState(String(reminder.amount ?? ""));
+  const [paidOn, setPaidOn] = useState(new Date().toISOString().slice(0, 10));
+  const [accountId, setAccountId] = useState<string>(accounts[0]?.id ?? "");
+  const [note, setNote] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!profile?.family_id) {
+      toast.error("Please set up your household first in the Family tab.");
+      return;
+    }
+    if (!accountId) {
+      toast.error("Please select the bank or cash account used to pay this bill.");
+      return;
+    }
+    if (!user) return;
+    setLoading(true);
+    const amt = Number(amount) || 0;
+
+    // 1. Record expense in ledger
+    if (amt > 0) {
+      const { error: txErr } = await supabase.from("transactions").insert({
+        user_id: user.id,
+        family_id: profile.family_id,
+        type: "expense",
+        amount: amt,
+        occurred_on: paidOn,
+        account_id: accountId,
+        note: `Bill paid: ${reminder.title}${note ? ` (${note.trim()})` : ""}`,
+      });
+      if (txErr) {
+        toast.error("Failed to record expense: " + txErr.message);
+        setLoading(false);
+        return;
+      }
+    }
+
+    // 2. Mark reminder as paid or advance recurring
+    if (reminder.recurrence && reminder.recurrence !== "none") {
+      const nextDate = getNextDueDate(reminder.due_date, reminder.recurrence);
+      await supabase.from("reminders").update({
+        due_date: nextDate,
+        is_paid: false,
+      }).eq("id", reminder.id);
+      toast.success(`Bill paid & deducted! Next due date: ${formatDate(nextDate)}`);
+    } else {
+      await supabase.from("reminders").update({ is_paid: true }).eq("id", reminder.id);
+      toast.success("Bill paid & deducted from account!");
+    }
+
+    setLoading(false);
+    onSaved();
+  };
+
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={onClose}>
+      <motion.form initial={{ scale: 0.95 }} animate={{ scale: 1 }} onClick={(e) => e.stopPropagation()} onSubmit={submit} className="w-full max-w-md rounded-3xl border border-border bg-card p-6 shadow-[var(--shadow-elevated)]">
+        <div className="mb-4 flex items-center justify-between">
+          <div>
+            <h2 className="font-display text-xl font-bold">Pay Bill</h2>
+            <p className="text-xs text-muted-foreground">{reminder.title}</p>
+          </div>
+          <button type="button" onClick={onClose} className="grid h-8 w-8 place-items-center rounded-lg hover:bg-secondary"><X className="h-4 w-4" /></button>
+        </div>
+
+        <div className="space-y-3">
+          <Field label="Amount to pay" type="number" step="0.01" min="0" value={amount} onChange={setAmount} required autoFocus />
+          <Field label="Payment date" type="date" value={paidOn} onChange={setPaidOn} required />
+
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-muted-foreground">Pay from Account *</span>
+            {accounts.length === 0 ? (
+              <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive">
+                <strong>No accounts found:</strong> Please go to the <strong>Accounts</strong> tab and add a Bank or Cash account first.
+              </div>
+            ) : (
+              <select value={accountId} onChange={(e) => setAccountId(e.target.value)} required className="w-full rounded-xl border border-input bg-background px-3.5 py-2.5 text-sm outline-none focus:border-primary">
+                {accounts.map((a) => <option key={a.id} value={a.id}>{a.name} ({formatMoney(Number(a.balance))})</option>)}
+              </select>
+            )}
+          </label>
+
+          <Field label="Note (optional)" value={note} onChange={setNote} placeholder="Reference, invoice #, etc." />
+        </div>
+
+        <button disabled={loading || accounts.length === 0} className="mt-5 w-full rounded-full px-5 py-3 font-semibold text-primary-foreground disabled:opacity-60" style={{ background: "var(--gradient-warm)" }}>
+          {loading ? "Processing…" : "Confirm & Pay Bill"}
+        </button>
+      </motion.form>
+    </motion.div>
+  );
+}
+

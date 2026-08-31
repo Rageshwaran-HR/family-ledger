@@ -530,6 +530,12 @@ BEGIN
   SET family_id = _family_id, updated_at = now()
   WHERE id = _uid;
 
+  -- Seed default accounts (Cash and Main Bank)
+  INSERT INTO public.accounts (family_id, user_id, name, type, balance, currency) VALUES
+    (_family_id, _uid, 'Cash Wallet', 'cash', 0.00, 'USD'),
+    (_family_id, _uid, 'Main Bank', 'bank', 0.00, 'USD')
+  ON CONFLICT DO NOTHING;
+
   -- Seed default tags
   INSERT INTO public.tags (family_id, name, color, icon, is_default, created_by) VALUES
     (_family_id, 'Groceries', '#2a9d8f', 'ShoppingBag', true, _uid),

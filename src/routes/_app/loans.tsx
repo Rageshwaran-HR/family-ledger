@@ -257,7 +257,6 @@ function PaymentDialog({ loan, accounts, onClose, onSaved }: { loan: Loan; accou
   const [amount, setAmount] = useState("");
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [accountId, setAccountId] = useState<string>(accounts[0]?.id ?? "");
-  const [recordTransaction, setRecordTransaction] = useState(true);
   const [note, setNote] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -266,7 +265,15 @@ function PaymentDialog({ loan, accounts, onClose, onSaved }: { loan: Loan; accou
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!profile?.family_id || !user) return;
+    if (!profile?.family_id) {
+      toast.error("Please set up your household first in the Family tab.");
+      return;
+    }
+    if (!accountId) {
+      toast.error("Please select the bank or cash account used to pay this loan.");
+      return;
+    }
+    if (!user) return;
     setLoading(true);
     const amt = Number(amount);
     const interestPaid = Math.min(amt, interestDue);
@@ -291,20 +298,18 @@ function PaymentDialog({ loan, accounts, onClose, onSaved }: { loan: Loan; accou
     }).eq("id", loan.id);
     if (e2) { toast.error(e2.message); setLoading(false); return; }
 
-    // Optionally record an expense transaction in the ledger
-    if (recordTransaction) {
-      await supabase.from("transactions").insert({
-        user_id: user.id,
-        family_id: profile.family_id,
-        type: "expense",
-        amount: amt,
-        occurred_on: date,
-        account_id: accountId || null,
-        note: `Loan payment: ${loan.name}${note ? ` (${note.trim()})` : ""}`,
-      });
-    }
+    // Always record an expense transaction in the ledger linked to the account
+    await supabase.from("transactions").insert({
+      user_id: user.id,
+      family_id: profile.family_id,
+      type: "expense",
+      amount: amt,
+      occurred_on: date,
+      account_id: accountId,
+      note: `Loan payment: ${loan.name}${note ? ` (${note.trim()})` : ""}`,
+    });
 
-    toast.success(newBalance === 0 ? "Loan paid off! 🎉" : "Payment recorded");
+    toast.success(newBalance === 0 ? "Loan paid off! 🎉" : "Payment recorded & deducted from account");
     onSaved();
   };
 
@@ -316,21 +321,24 @@ function PaymentDialog({ loan, accounts, onClose, onSaved }: { loan: Loan; accou
         <div className="mt-4 space-y-3">
           <Field label="Payment amount" type="number" step="0.01" value={amount} onChange={setAmount} required autoFocus />
           <Field label="Date" type="date" value={date} onChange={setDate} required />
+          
           <label className="block">
-            <span className="mb-1 block text-xs font-medium text-muted-foreground">Pay from account (optional)</span>
-            <select value={accountId} onChange={(e) => setAccountId(e.target.value)} className="w-full rounded-xl border border-input bg-background px-3.5 py-2.5 text-sm">
-              <option value="">None / External</option>
-              {accounts.map((a) => <option key={a.id} value={a.id}>{a.name} ({formatMoney(Number(a.balance))})</option>)}
-            </select>
+            <span className="mb-1 block text-xs font-medium text-muted-foreground">Pay from Account *</span>
+            {accounts.length === 0 ? (
+              <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive">
+                <strong>No accounts found:</strong> Please go to the <strong>Accounts</strong> tab and add a Bank or Cash account first.
+              </div>
+            ) : (
+              <select value={accountId} onChange={(e) => setAccountId(e.target.value)} required className="w-full rounded-xl border border-input bg-background px-3.5 py-2.5 text-sm">
+                {accounts.map((a) => <option key={a.id} value={a.id}>{a.name} ({formatMoney(Number(a.balance))})</option>)}
+              </select>
+            )}
           </label>
-          <label className="flex items-center gap-2 text-xs text-muted-foreground pt-1">
-            <input type="checkbox" checked={recordTransaction} onChange={(e) => setRecordTransaction(e.target.checked)} />
-            Record corresponding expense in family ledger
-          </label>
+
           <Field label="Note (optional)" value={note} onChange={setNote} placeholder="Month 3 installment, etc." />
         </div>
-        <button disabled={loading} className="mt-5 w-full rounded-full px-5 py-3 font-semibold text-primary-foreground disabled:opacity-60" style={{ background: "var(--gradient-warm)" }}>
-          {loading ? "Saving…" : "Record payment"}
+        <button disabled={loading || accounts.length === 0} className="mt-5 w-full rounded-full px-5 py-3 font-semibold text-primary-foreground disabled:opacity-60" style={{ background: "var(--gradient-warm)" }}>
+          {loading ? "Saving…" : "Record payment & deduct from account"}
         </button>
       </motion.form>
     </motion.div>
