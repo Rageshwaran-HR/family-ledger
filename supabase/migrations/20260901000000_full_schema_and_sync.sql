@@ -265,6 +265,10 @@ DO $$ BEGIN
   CREATE POLICY "profiles_select" ON public.profiles FOR SELECT TO authenticated
     USING (id = auth.uid() OR family_id = public.get_user_family(auth.uid()));
 
+  DROP POLICY IF EXISTS "profiles_insert" ON public.profiles;
+  CREATE POLICY "profiles_insert" ON public.profiles FOR INSERT TO authenticated
+    WITH CHECK (id = auth.uid());
+
   DROP POLICY IF EXISTS "profiles_update" ON public.profiles;
   CREATE POLICY "profiles_update" ON public.profiles FOR UPDATE TO authenticated
     USING (id = auth.uid())
@@ -525,10 +529,17 @@ BEGIN
   VALUES (_uid, _family_id, 'admin')
   ON CONFLICT (user_id, family_id, role) DO NOTHING;
 
-  -- Update profile
-  UPDATE public.profiles
-  SET family_id = _family_id, updated_at = now()
-  WHERE id = _uid;
+  -- Ensure profile exists and is updated with family_id
+  INSERT INTO public.profiles (id, family_id, full_name, email)
+  VALUES (
+    _uid,
+    _family_id,
+    COALESCE((SELECT raw_user_meta_data->>'full_name' FROM auth.users WHERE id = _uid), (SELECT raw_user_meta_data->>'name' FROM auth.users WHERE id = _uid), ''),
+    (SELECT email FROM auth.users WHERE id = _uid)
+  )
+  ON CONFLICT (id) DO UPDATE SET
+    family_id = _family_id,
+    updated_at = now();
 
   -- Seed default accounts (Cash and Main Bank)
   INSERT INTO public.accounts (family_id, user_id, name, type, balance, currency) VALUES
@@ -585,10 +596,17 @@ BEGIN
   VALUES (_uid, _invitation.family_id, 'member')
   ON CONFLICT (user_id, family_id, role) DO NOTHING;
 
-  -- Update profile
-  UPDATE public.profiles
-  SET family_id = _invitation.family_id, updated_at = now()
-  WHERE id = _uid;
+  -- Ensure profile exists and is updated with family_id
+  INSERT INTO public.profiles (id, family_id, full_name, email)
+  VALUES (
+    _uid,
+    _invitation.family_id,
+    COALESCE((SELECT raw_user_meta_data->>'full_name' FROM auth.users WHERE id = _uid), (SELECT raw_user_meta_data->>'name' FROM auth.users WHERE id = _uid), ''),
+    (SELECT email FROM auth.users WHERE id = _uid)
+  )
+  ON CONFLICT (id) DO UPDATE SET
+    family_id = _invitation.family_id,
+    updated_at = now();
 
   RETURN _invitation.family_id;
 END;
@@ -641,3 +659,17 @@ BEGIN
   RETURN true;
 END;
 $$;
+
+-- =============================================================================
+-- 8. BACKFILL EXISTING USERS
+-- =============================================================================
+INSERT INTO public.profiles (id, full_name, email)
+SELECT
+  id,
+  COALESCE(raw_user_meta_data->>'full_name', raw_user_meta_data->>'name', split_part(email, '@', 1), 'User'),
+  email
+FROM auth.users
+ON CONFLICT (id) DO UPDATE SET
+  email = EXCLUDED.email,
+  full_name = CASE WHEN profiles.full_name = '' THEN EXCLUDED.full_name ELSE profiles.full_name END;
+
