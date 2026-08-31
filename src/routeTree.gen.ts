@@ -21,6 +21,7 @@ import { Route as AppOnboardingRouteImport } from './routes/_app/onboarding'
 import { Route as AppLoansRouteImport } from './routes/_app/loans'
 import { Route as AppFamilyRouteImport } from './routes/_app/family'
 import { Route as AppDashboardRouteImport } from './routes/_app/dashboard'
+import { Route as AppBusinessRouteImport } from './routes/_app/business'
 import { Route as AppAccountsRouteImport } from './routes/_app/accounts'
 
 const AuthRoute = AuthRouteImport.update({
@@ -82,6 +83,11 @@ const AppDashboardRoute = AppDashboardRouteImport.update({
   path: '/dashboard',
   getParentRoute: () => AppRoute,
 } as any)
+const AppBusinessRoute = AppBusinessRouteImport.update({
+  id: '/business',
+  path: '/business',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppAccountsRoute = AppAccountsRouteImport.update({
   id: '/accounts',
   path: '/accounts',
@@ -92,6 +98,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/accounts': typeof AppAccountsRoute
+  '/business': typeof AppBusinessRoute
   '/dashboard': typeof AppDashboardRoute
   '/family': typeof AppFamilyRoute
   '/loans': typeof AppLoansRoute
@@ -106,6 +113,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/accounts': typeof AppAccountsRoute
+  '/business': typeof AppBusinessRoute
   '/dashboard': typeof AppDashboardRoute
   '/family': typeof AppFamilyRoute
   '/loans': typeof AppLoansRoute
@@ -122,6 +130,7 @@ export interface FileRoutesById {
   '/_app': typeof AppRouteWithChildren
   '/auth': typeof AuthRoute
   '/_app/accounts': typeof AppAccountsRoute
+  '/_app/business': typeof AppBusinessRoute
   '/_app/dashboard': typeof AppDashboardRoute
   '/_app/family': typeof AppFamilyRoute
   '/_app/loans': typeof AppLoansRoute
@@ -138,6 +147,7 @@ export interface FileRouteTypes {
     | '/'
     | '/auth'
     | '/accounts'
+    | '/business'
     | '/dashboard'
     | '/family'
     | '/loans'
@@ -152,6 +162,7 @@ export interface FileRouteTypes {
     | '/'
     | '/auth'
     | '/accounts'
+    | '/business'
     | '/dashboard'
     | '/family'
     | '/loans'
@@ -167,6 +178,7 @@ export interface FileRouteTypes {
     | '/_app'
     | '/auth'
     | '/_app/accounts'
+    | '/_app/business'
     | '/_app/dashboard'
     | '/_app/family'
     | '/_app/loans'
@@ -270,6 +282,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppDashboardRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/business': {
+      id: '/_app/business'
+      path: '/business'
+      fullPath: '/business'
+      preLoaderRoute: typeof AppBusinessRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/accounts': {
       id: '/_app/accounts'
       path: '/accounts'
@@ -282,6 +301,7 @@ declare module '@tanstack/react-router' {
 
 interface AppRouteChildren {
   AppAccountsRoute: typeof AppAccountsRoute
+  AppBusinessRoute: typeof AppBusinessRoute
   AppDashboardRoute: typeof AppDashboardRoute
   AppFamilyRoute: typeof AppFamilyRoute
   AppLoansRoute: typeof AppLoansRoute
@@ -295,6 +315,7 @@ interface AppRouteChildren {
 
 const AppRouteChildren: AppRouteChildren = {
   AppAccountsRoute: AppAccountsRoute,
+  AppBusinessRoute: AppBusinessRoute,
   AppDashboardRoute: AppDashboardRoute,
   AppFamilyRoute: AppFamilyRoute,
   AppLoansRoute: AppLoansRoute,
