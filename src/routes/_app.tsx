@@ -3,8 +3,9 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { supabase } from "@/integrations/supabase/client";
 import { formatMoney, formatDate } from "@/lib/format";
-import { LayoutDashboard, ArrowLeftRight, Wallet, Tag, Users, Bell, FileBarChart, LogOut, Menu, X, Heart, Settings, Briefcase } from "lucide-react";
+import { LayoutDashboard, ArrowLeftRight, Wallet, Tag, Users, Bell, FileBarChart, LogOut, Menu, X, Heart, Settings, Briefcase, Smartphone, Download } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/_app")({
   component: AppShell,
@@ -29,7 +30,36 @@ function AppShell() {
   const path = useRouterState({ select: (s) => s.location.pathname });
   const [open, setOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [notifications, setNotifications] = useState<Array<{ id: string; title: string; due: string; amount: number | null; overdue: boolean; kind: "reminder" | "loan" }>>([]);
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+    window.addEventListener("beforeinstallprompt", handler);
+    return () => window.removeEventListener("beforeinstallprompt", handler);
+  }, []);
+
+  const handleInstallApp = async () => {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      if (outcome === "accepted") {
+        setDeferredPrompt(null);
+        toast.success("Hearth App installed!");
+      }
+    } else {
+      // Guide for iOS Safari or already installed
+      const isIos = /iphone|ipad|ipod/.test(window.navigator.userAgent.toLowerCase());
+      if (isIos) {
+        toast.info("To install on iPhone/iPad: tap the Share icon at the bottom of Safari and choose 'Add to Home Screen' 📲", { duration: 6000 });
+      } else {
+        toast.info("To install: tap your browser menu (⋮) and choose 'Install App' or 'Add to Home screen' 📲", { duration: 5000 });
+      }
+    }
+  };
 
   useEffect(() => {
     if (!loading && !user) navigate({ to: "/auth", search: { mode: "signin" } });
@@ -141,13 +171,17 @@ function AppShell() {
               );
             })}
           </nav>
-          <div className="mt-auto border-t border-border pt-3">
-            <div className="px-3 py-2">
+          <div className="mt-auto border-t border-border pt-3 space-y-1">
+            <button onClick={handleInstallApp}
+              className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-xs font-semibold text-primary bg-primary/10 hover:bg-primary/20 transition-colors">
+              <Smartphone className="h-4 w-4 shrink-0" /> Install App on Phone
+            </button>
+            <div className="px-3 py-1.5">
               <div className="text-sm font-semibold text-foreground">{profile?.full_name || "You"}</div>
               <div className="truncate text-xs text-muted-foreground">{user.email}</div>
             </div>
             <button onClick={() => { signOut(); navigate({ to: "/" }); }}
-              className="mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-foreground hover:bg-sidebar-accent">
+              className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm text-foreground hover:bg-sidebar-accent">
               <LogOut className="h-4 w-4" /> Sign out
             </button>
           </div>

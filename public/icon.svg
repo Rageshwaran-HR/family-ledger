@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="hearth-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#e76f51" />
+      <stop offset="100%" stop-color="#f4a261" />
+    </linearGradient>
+  </defs>
+  <!-- Background Rounded Rect -->
+  <rect width="512" height="512" rx="120" fill="#faf7f2" />
+  <rect x="24" y="24" width="464" height="464" rx="100" fill="url(#hearth-grad)" />
+  <!-- Heart Icon in Center -->
+  <path d="M256 400 C256 400 110 295 110 185 C110 130 155 85 210 85 C240 85 256 108 256 108 C256 108 272 85 302 85 C357 85 402 130 402 185 C402 295 256 400 256 400 Z" fill="#ffffff" />
+</svg>

@@ -1,0 +1,19 @@
+{
+  "name": "Hearth — Family Ledger",
+  "short_name": "Hearth",
+  "description": "Family finance, income, expense, and loan tracking together.",
+  "start_url": "/dashboard",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#faf7f2",
+  "theme_color": "#d9663d",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "192x192 512x512 any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
