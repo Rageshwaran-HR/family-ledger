@@ -276,6 +276,7 @@ function Transactions() {
             initialText={initialSharedText}
             tags={tags}
             accounts={accounts}
+            members={members}
             clients={clients}
             onClose={() => { setScanOpen(false); setInitialSharedText(""); }}
             onSaved={() => { load(); setScanOpen(false); setInitialSharedText(""); }}
@@ -788,6 +789,7 @@ function ReceiptParserDialog({
   initialText = "",
   tags,
   accounts,
+  members = [],
   clients,
   onClose,
   onSaved,
@@ -795,6 +797,7 @@ function ReceiptParserDialog({
   initialText?: string;
   tags: any[];
   accounts: any[];
+  members?: any[];
   clients: any[];
   onClose: () => void;
   onSaved: () => void;
@@ -837,10 +840,24 @@ function ReceiptParserDialog({
     if (detectedFromId) setAccountId(detectedFromId);
     if (detectedToId && detectedToId !== detectedFromId) setToAccountId(detectedToId);
 
-    // If self transfer or both accounts matched in family
-    if (p.isSelfTransfer || (detectedFromId && detectedToId && detectedFromId !== detectedToId)) {
+    // 1. Check if recipient name matches a Family Member
+    const matchedFamilyMember = members.find((m) =>
+      m.id !== user?.id &&
+      m.full_name &&
+      (text.toLowerCase().includes(m.full_name.toLowerCase()) ||
+       (p.merchantOrSender && p.merchantOrSender.length > 2 && m.full_name.toLowerCase().includes(p.merchantOrSender.toLowerCase())) ||
+       (p.merchantOrSender && p.merchantOrSender.length > 2 && text.toLowerCase().includes(m.full_name.split(" ")[0].toLowerCase())))
+    );
+
+    if (matchedFamilyMember) {
+      // Find recipient's account in family
+      const memberAcc = accounts.find((a) => a.user_id === matchedFamilyMember.id);
+      if (memberAcc) setToAccountId(memberAcc.id);
       setType("transfer");
-      setNote("Self Transfer between accounts");
+      setNote(`Family Transfer to ${matchedFamilyMember.full_name}${p.upiRef ? ` (Ref: ${p.upiRef})` : ""}`);
+    } else if (p.isSelfTransfer || (detectedFromId && detectedToId && detectedFromId !== detectedToId)) {
+      setType("transfer");
+      setNote(`Self Transfer between accounts${p.upiRef ? ` (Ref: ${p.upiRef})` : ""}`);
     } else {
       setType(p.type);
       setNote(p.merchantOrSender + (p.upiRef ? ` (Ref: ${p.upiRef})` : ""));
@@ -862,7 +879,7 @@ function ReceiptParserDialog({
       if (mClient) setMatchedClientId(mClient.id);
       else setMatchedClientId("");
     }
-  }, [text, tags, accounts, clients]);
+  }, [text, tags, accounts, members, clients, user]);
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
