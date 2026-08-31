@@ -18,19 +18,29 @@ function Dashboard() {
   const [txs, setTxs] = useState<Tx[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
   const [members, setMembers] = useState<Profile[]>([]);
+  const [accountsBalance, setAccountsBalance] = useState<number>(0);
+  const [totalDebt, setTotalDebt] = useState<number>(0);
   const [period, setPeriod] = useState<"month" | "year" | "all">("month");
   const [memberFilter, setMemberFilter] = useState<string>("all");
 
   const load = async () => {
     if (!profile?.family_id) return;
-    const [t, g, m] = await Promise.all([
-      supabase.from("transactions").select("*").order("occurred_on", { ascending: false }),
-      supabase.from("tags").select("id,name,color"),
-      supabase.from("profiles").select("id,full_name").eq("family_id", profile.family_id!),
+    const [t, g, m, a, l] = await Promise.all([
+      supabase.from("transactions").select("*").eq("family_id", profile.family_id).order("occurred_on", { ascending: false }),
+      supabase.from("tags").select("id,name,color").eq("family_id", profile.family_id),
+      supabase.from("profiles").select("id,full_name").eq("family_id", profile.family_id),
+      supabase.from("accounts").select("balance").eq("family_id", profile.family_id).eq("is_active", true),
+      supabase.from("loans").select("remaining_balance").eq("family_id", profile.family_id).eq("status", "active"),
     ]);
     setTxs((t.data as Tx[]) ?? []);
     setTags((g.data as Tag[]) ?? []);
     setMembers((m.data as Profile[]) ?? []);
+    
+    const totalBal = (a.data || []).reduce((acc: number, curr: any) => acc + Number(curr.balance || 0), 0);
+    setAccountsBalance(totalBal);
+
+    const debt = (l.data || []).reduce((acc: number, curr: any) => acc + Number(curr.remaining_balance || 0), 0);
+    setTotalDebt(debt);
   };
 
   useEffect(() => {
@@ -39,17 +49,25 @@ function Dashboard() {
     const channel = supabase
       .channel("dashboard-realtime")
       .on("postgres_changes", { event: "*", schema: "public", table: "transactions" }, () => load())
+      .on("postgres_changes", { event: "*", schema: "public", table: "accounts" }, () => load())
+      .on("postgres_changes", { event: "*", schema: "public", table: "loans" }, () => load())
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [profile?.family_id]);
 
   const filtered = useMemo(() => {
     const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth() + 1;
+
     return txs.filter((t) => {
       if (memberFilter !== "all" && t.user_id !== memberFilter) return false;
-      const d = new Date(t.occurred_on);
-      if (period === "month") return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-      if (period === "year") return d.getFullYear() === now.getFullYear();
+      if (!t.occurred_on) return true;
+      const parts = t.occurred_on.slice(0, 7).split("-").map(Number);
+      const txYear = parts[0];
+      const txMonth = parts[1];
+      if (period === "month") return txYear === currentYear && txMonth === currentMonth;
+      if (period === "year") return txYear === currentYear;
       return true;
     });
   }, [txs, period, memberFilter]);
@@ -85,7 +103,7 @@ function Dashboard() {
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="font-display text-3xl font-bold md:text-4xl">Hi, {profile?.full_name?.split(" ")[0] || "there"} 👋</h1>
-          <p className="text-muted-foreground">Here's your family's financial picture.</p>
+          <p className="text-muted-foreground">Here's your family's live financial picture.</p>
         </div>
         <Link to="/transactions" search={{ new: "1" }}
           className="inline-flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-[var(--shadow-soft)]"
@@ -99,16 +117,17 @@ function Dashboard() {
         <Pill active={period === "year"} onClick={() => setPeriod("year")}>This year</Pill>
         <Pill active={period === "all"} onClick={() => setPeriod("all")}>All time</Pill>
         <select value={memberFilter} onChange={(e) => setMemberFilter(e.target.value)}
-          className="rounded-full border border-border bg-card px-3.5 py-1.5 text-xs sm:text-sm shrink-0">
-          <option value="all">All members</option>
+          className="rounded-full border border-border bg-card px-3.5 py-1.5 text-xs sm:text-sm shrink-0 outline-none">
+          <option value="all">All family members ({members.length})</option>
           {members.map((m) => <option key={m.id} value={m.id}>{m.full_name}</option>)}
         </select>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-3 sm:gap-4">
+      <div className="grid gap-3 grid-cols-2 lg:grid-cols-4 sm:gap-4">
+        <StatCard label="Total Bank Balance" value={accountsBalance} icon={Wallet} accent="primary" />
         <StatCard label="Income" value={totalIncome} icon={TrendingUp} accent="success" />
         <StatCard label="Expenses" value={totalExpense} icon={TrendingDown} accent="destructive" />
-        <StatCard label="Net" value={net} icon={Wallet} accent={net >= 0 ? "primary" : "destructive"} />
+        <StatCard label="Net Savings" value={net} icon={Wallet} accent={net >= 0 ? "success" : "destructive"} />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
