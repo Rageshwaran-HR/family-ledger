@@ -41,7 +41,7 @@ function Reminders() {
     if (!profile?.family_id) return;
     const [{ data: rData }, { data: aData }] = await Promise.all([
       supabase.from("reminders").select("*").order("due_date"),
-      supabase.from("accounts").select("*").eq("family_id", profile.family_id).eq("is_active", true).order("name"),
+      supabase.from("accounts").select("*").eq("family_id", profile.family_id).order("name"),
     ]);
     setList((rData as Reminder[]) ?? []);
     setAccounts(aData ?? []);

@@ -29,7 +29,7 @@ function Dashboard() {
       supabase.from("transactions").select("*").eq("family_id", profile.family_id).order("occurred_on", { ascending: false }),
       supabase.from("tags").select("id,name,color").eq("family_id", profile.family_id),
       supabase.from("profiles").select("id,full_name").eq("family_id", profile.family_id),
-      supabase.from("accounts").select("balance").eq("family_id", profile.family_id).eq("is_active", true),
+      supabase.from("accounts").select("balance").eq("family_id", profile.family_id),
       supabase.from("loans").select("remaining_balance").eq("family_id", profile.family_id).eq("status", "active"),
     ]);
     setTxs((t.data as Tx[]) ?? []);
