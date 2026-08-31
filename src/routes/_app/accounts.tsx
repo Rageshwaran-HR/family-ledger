@@ -215,7 +215,12 @@ function Accounts() {
                     )}
                   </div>
                   <div className="mt-4 text-sm font-medium text-foreground">{a.name}</div>
-                  <div className="font-display text-2xl font-bold">{formatMoney(Number(a.balance), a.currency)}</div>
+                  {a.account_number && (
+                    <div className="text-[11px] font-mono text-muted-foreground">
+                      •••• {a.account_number.slice(-4)}
+                    </div>
+                  )}
+                  <div className="font-display text-2xl font-bold mt-1">{formatMoney(Number(a.balance), a.currency)}</div>
                   <div className="mt-2 text-xs text-muted-foreground">{memberMap[a.user_id]?.full_name || "Member"} · {T.label}</div>
                 </motion.div>
               );
@@ -818,6 +823,7 @@ function TransferDialog({ accounts, onClose, onSaved }: { accounts: any[]; onClo
 function AccountDialog({ account, onClose, onSaved }: { account?: any | null; onClose: () => void; onSaved: () => void }) {
   const { profile, user } = useAuth();
   const [name, setName] = useState(account?.name ?? "");
+  const [accountNumber, setAccountNumber] = useState(account?.account_number ?? "");
   const [type, setType] = useState(account?.type ?? "bank");
   const [balance, setBalance] = useState(account ? String(account.balance) : "0");
   const [currency, setCurrency] = useState(account?.currency ?? "INR");
@@ -837,6 +843,7 @@ function AccountDialog({ account, onClose, onSaved }: { account?: any | null; on
     if (isEdit) {
       const { error } = await supabase.from("accounts").update({
         name: name.trim(),
+        account_number: accountNumber.trim() || null,
         type: type as any,
         balance: Number(balance),
         currency,
@@ -849,6 +856,7 @@ function AccountDialog({ account, onClose, onSaved }: { account?: any | null; on
         user_id: user.id,
         family_id: profile.family_id,
         name: name.trim(),
+        account_number: accountNumber.trim() || null,
         type: type as any,
         balance: Number(balance),
         currency,
@@ -865,7 +873,8 @@ function AccountDialog({ account, onClose, onSaved }: { account?: any | null; on
       <motion.form initial={{ scale: 0.95 }} animate={{ scale: 1 }} onClick={(e) => e.stopPropagation()} onSubmit={save} className="w-full max-w-md rounded-3xl border border-border bg-card p-6 shadow-[var(--shadow-elevated)]">
         <h2 className="mb-4 font-display text-xl font-bold">{isEdit ? "Edit account" : "Add account"}</h2>
         <div className="space-y-3">
-          <Field label="Account name" value={name} onChange={setName} required placeholder="HDFC Salary Account" autoFocus />
+          <Field label="Account name" value={name} onChange={setName} required placeholder="e.g. HDFC Salary Account" autoFocus />
+          <Field label="Account Number / Last 4 Digits / UPI ID (Optional)" value={accountNumber} onChange={setAccountNumber} placeholder="e.g. 1234 or user@okhdfcbank" />
           <label className="block">
             <span className="mb-1 block text-xs font-medium text-muted-foreground">Type</span>
             <select value={type} onChange={(e) => setType(e.target.value)} className="w-full rounded-xl border border-input bg-background px-3.5 py-2.5 text-sm">

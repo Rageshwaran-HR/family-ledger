@@ -732,11 +732,12 @@ function ReceiptParserDialog({
   const { user, profile } = useAuth();
   const [text, setText] = useState(initialText);
   const [amount, setAmount] = useState("");
-  const [type, setType] = useState<"expense" | "income">("expense");
+  const [type, setType] = useState<"expense" | "income" | "transfer">("expense");
   const [note, setNote] = useState("");
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [tagId, setTagId] = useState("");
   const [accountId, setAccountId] = useState(accounts[0]?.id || "");
+  const [toAccountId, setToAccountId] = useState(accounts[1]?.id || accounts[0]?.id || "");
   const [matchedClientId, setMatchedClientId] = useState<string>("");
   const [loading, setLoading] = useState(false);
 
@@ -745,20 +746,42 @@ function ReceiptParserDialog({
     if (!text.trim()) return;
     const p = parseBankOrUpiReceipt(text);
     if (p.amount !== null) setAmount(String(p.amount));
-    setType(p.type);
-    setNote(p.merchantOrSender + (p.upiRef ? ` (Ref: ${p.upiRef})` : ""));
+    
+    // Find matching accounts by account_number
+    let detectedFromId = "";
+    let detectedToId = "";
+
+    if (p.fromAccountMask) {
+      const match = accounts.find((a) => a.account_number?.includes(p.fromAccountMask!) || a.name.includes(p.fromAccountMask!));
+      if (match) detectedFromId = match.id;
+    }
+    if (p.toAccountMask) {
+      const match = accounts.find((a) => a.account_number?.includes(p.toAccountMask!) || a.name.includes(p.toAccountMask!));
+      if (match) detectedToId = match.id;
+    }
+    if (p.accountMask && !detectedFromId) {
+      const match = accounts.find((a) => a.account_number?.includes(p.accountMask!) || a.name.includes(p.accountMask!));
+      if (match) detectedFromId = match.id;
+    }
+
+    if (detectedFromId) setAccountId(detectedFromId);
+    if (detectedToId && detectedToId !== detectedFromId) setToAccountId(detectedToId);
+
+    // If self transfer or both accounts matched in family
+    if (p.isSelfTransfer || (detectedFromId && detectedToId && detectedFromId !== detectedToId)) {
+      setType("transfer");
+      setNote("Self Transfer between accounts");
+    } else {
+      setType(p.type);
+      setNote(p.merchantOrSender + (p.upiRef ? ` (Ref: ${p.upiRef})` : ""));
+    }
+
     setDate(p.date);
 
     // Auto-match tag
     const matchedTag = tags.find((t) => t.name.toLowerCase() === p.categorySuggestion.toLowerCase());
     if (matchedTag) setTagId(matchedTag.id);
     else if (tags[0]) setTagId(tags[0].id);
-
-    // Auto-match account by mask
-    if (p.accountMask && accounts.length > 0) {
-      const matchAcc = accounts.find((a) => a.name.includes(p.accountMask!) || a.name.toLowerCase().includes(p.accountMask!));
-      if (matchAcc) setAccountId(matchAcc.id);
-    }
 
     // Auto-match business client
     if (p.type === "income" && clients.length > 0) {
@@ -785,6 +808,26 @@ function ReceiptParserDialog({
 
     setLoading(true);
     try {
+      if (type === "transfer") {
+        if (accountId === toAccountId) {
+          throw new Error("Source and destination accounts must be different");
+        }
+        const fromAcc = accounts.find((a) => a.id === accountId);
+        const toAcc = accounts.find((a) => a.id === toAccountId);
+        if (!fromAcc || !toAcc) throw new Error("Accounts not found");
+
+        const val = Number(amount);
+        const [resFrom, resTo] = await Promise.all([
+          supabase.from("accounts").update({ balance: Number(fromAcc.balance) - val }).eq("id", accountId),
+          supabase.from("accounts").update({ balance: Number(toAcc.balance) + val }).eq("id", toAccountId),
+        ]);
+        if (resFrom.error || resTo.error) throw resFrom.error || resTo.error;
+
+        toast.success(`Transferred ${formatMoney(val)} from ${fromAcc.name} to ${toAcc.name}`);
+        onSaved();
+        return;
+      }
+
       // If matched with business client, also record client payment
       if (type === "income" && matchedClientId) {
         const client = clients.find((c) => c.id === matchedClientId);
@@ -833,7 +876,7 @@ function ReceiptParserDialog({
             </div>
             <div>
               <h2 className="font-display text-lg font-bold">Paste / Scan UPI & Bank Receipt</h2>
-              <p className="text-xs text-muted-foreground">Works with GPay, PhonePe, Paytm, SMS & Any Bank</p>
+              <p className="text-xs text-muted-foreground">Auto-detects Bank Account, Self-Pay, Amount & Note</p>
             </div>
           </div>
           <button type="button" onClick={onClose} className="text-muted-foreground hover:text-foreground">
@@ -850,7 +893,7 @@ function ReceiptParserDialog({
             rows={3}
             value={text}
             onChange={(e) => setText(e.target.value)}
-            placeholder="e.g. Paid ₹450 to Swiggy on Google Pay (UPI Ref: 482910394812)... or paste HDFC/SBI bank debit SMS"
+            placeholder="e.g. Paid ₹450 to Swiggy on Google Pay (UPI Ref: 482910394812)... or 'Transferred ₹5,000 from HDFC XX1234 to SBI XX5678'"
             className="w-full rounded-2xl border border-input bg-background p-3 text-xs outline-none focus:border-primary font-mono"
             autoFocus
           />
@@ -860,8 +903,14 @@ function ReceiptParserDialog({
         <div className="rounded-2xl border border-border/80 bg-secondary/30 p-4 space-y-3">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Parsed Transaction Details</span>
-            <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${type === "income" ? "bg-emerald-500/20 text-emerald-700 dark:text-emerald-300" : "bg-primary/20 text-primary"}`}>
-              {type === "income" ? "Income / Credit" : "Expense / Debit"}
+            <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${
+              type === "income"
+                ? "bg-emerald-500/20 text-emerald-700 dark:text-emerald-300"
+                : type === "transfer"
+                ? "bg-blue-500/20 text-blue-700 dark:text-blue-300"
+                : "bg-primary/20 text-primary"
+            }`}>
+              {type === "income" ? "Income / Credit" : type === "transfer" ? "🔄 Self-Pay / Transfer" : "Expense / Debit"}
             </span>
           </div>
 
@@ -871,6 +920,7 @@ function ReceiptParserDialog({
               <select value={type} onChange={(e) => setType(e.target.value as any)} className="w-full rounded-xl border border-input bg-background px-3 py-2 text-xs">
                 <option value="expense">Expense</option>
                 <option value="income">Income</option>
+                <option value="transfer">🔄 Self Transfer</option>
               </select>
             </label>
             <label className="block">
@@ -879,26 +929,55 @@ function ReceiptParserDialog({
             </label>
           </div>
 
+          {type === "transfer" ? (
+            <div className="grid grid-cols-2 gap-3">
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-muted-foreground">From Account</span>
+                <select value={accountId} onChange={(e) => setAccountId(e.target.value)} className="w-full rounded-xl border border-input bg-background px-3 py-2 text-xs">
+                  {accounts.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name} {a.account_number ? `(•••• ${a.account_number.slice(-4)})` : ""}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-muted-foreground">To Account</span>
+                <select value={toAccountId} onChange={(e) => setToAccountId(e.target.value)} className="w-full rounded-xl border border-input bg-background px-3 py-2 text-xs">
+                  {accounts.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name} {a.account_number ? `(•••• ${a.account_number.slice(-4)})` : ""}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-3">
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-muted-foreground">Bank Account / Wallet</span>
+                <select value={accountId} onChange={(e) => setAccountId(e.target.value)} className="w-full rounded-xl border border-input bg-background px-3 py-2 text-xs">
+                  {accounts.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name} {a.account_number ? `(•••• ${a.account_number.slice(-4)})` : ""} ({formatMoney(Number(a.balance))})
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-muted-foreground">Category Tag</span>
+                <select value={tagId} onChange={(e) => setTagId(e.target.value)} className="w-full rounded-xl border border-input bg-background px-3 py-2 text-xs">
+                  <option value="">— Uncategorized —</option>
+                  {tags.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
+              </label>
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-3">
             <label className="block">
               <span className="mb-1 block text-xs font-medium text-muted-foreground">Date</span>
               <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-full rounded-xl border border-input bg-background px-3 py-2 text-xs" required />
-            </label>
-            <label className="block">
-              <span className="mb-1 block text-xs font-medium text-muted-foreground">Category Tag</span>
-              <select value={tagId} onChange={(e) => setTagId(e.target.value)} className="w-full rounded-xl border border-input bg-background px-3 py-2 text-xs">
-                <option value="">— Uncategorized —</option>
-                {tags.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-              </select>
-            </label>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <label className="block">
-              <span className="mb-1 block text-xs font-medium text-muted-foreground">Bank Account / Wallet</span>
-              <select value={accountId} onChange={(e) => setAccountId(e.target.value)} className="w-full rounded-xl border border-input bg-background px-3 py-2 text-xs">
-                {accounts.map((a) => <option key={a.id} value={a.id}>{a.name} ({formatMoney(Number(a.balance))})</option>)}
-              </select>
             </label>
             <label className="block">
               <span className="mb-1 block text-xs font-medium text-muted-foreground">Description / Note</span>
@@ -927,7 +1006,7 @@ function ReceiptParserDialog({
         </div>
 
         <button disabled={loading} className="w-full rounded-full px-5 py-3 font-semibold text-primary-foreground disabled:opacity-60 shadow-[var(--shadow-soft)]" style={{ background: "var(--gradient-warm)" }}>
-          {loading ? "Recording…" : "Save Transaction to Ledger"}
+          {loading ? "Recording…" : type === "transfer" ? "Execute Self-Transfer" : "Save Transaction to Ledger"}
         </button>
       </motion.form>
     </motion.div>

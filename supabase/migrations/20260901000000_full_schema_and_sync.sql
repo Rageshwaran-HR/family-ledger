@@ -72,8 +72,10 @@ CREATE TABLE IF NOT EXISTS public.accounts (
   type public.account_type NOT NULL DEFAULT 'bank',
   balance NUMERIC(14,2) NOT NULL DEFAULT 0,
   currency TEXT NOT NULL DEFAULT 'INR',
+  account_number TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE public.accounts ADD COLUMN IF NOT EXISTS account_number TEXT;
 
 -- Category Tags
 CREATE TABLE IF NOT EXISTS public.tags (

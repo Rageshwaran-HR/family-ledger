@@ -1,10 +1,13 @@
 export interface ParsedReceipt {
   amount: number | null;
   type: "income" | "expense";
+  isSelfTransfer: boolean;
   merchantOrSender: string;
   upiRef: string | null;
   date: string;
   accountMask: string | null;
+  fromAccountMask: string | null;
+  toAccountMask: string | null;
   categorySuggestion: string;
   rawText: string;
 }
@@ -16,8 +19,10 @@ export function parseBankOrUpiReceipt(rawText: string): ParsedReceipt {
   const text = rawText.trim();
   const lower = text.toLowerCase();
 
-  // 1. Determine Type: Income vs Expense
-  const isIncome = /\b(credited|credit|received|deposit|deposited|refund|refunded|added to your|received from|received in|transferred to your)\b/i.test(text) &&
+  // 1. Determine Self Transfer / Type: Income vs Expense
+  const isSelf = /\b(self transfer|to self|transferred to self|own account|transfer to own|between your accounts)\b/i.test(text);
+
+  const isIncome = !isSelf && /\b(credited|credit|received|deposit|deposited|refund|refunded|added to your|received from|received in|transferred to your)\b/i.test(text) &&
     !/\b(refund for debit|failed credit)\b/i.test(text);
   const type: "income" | "expense" = isIncome ? "income" : "expense";
 
@@ -41,13 +46,20 @@ export function parseBankOrUpiReceipt(rawText: string): ParsedReceipt {
     upiRef = upiMatch[1].trim();
   }
 
-  // 4. Extract Account Number / Mask (e.g. A/c XX1234, Account ending 4567, a/c ...890)
+  // 4. Extract Account Numbers (From Account & To Account)
   let accountMask: string | null = null;
-  const accMatch = text.match(/(?:a\/c|account|acct)\s*(?:no\.?)?\s*(?:ending\s*)?([xX*]*\d{3,4})/i) ||
+  let fromAccountMask: string | null = null;
+  let toAccountMask: string | null = null;
+
+  const fromAccMatch = text.match(/(?:from\s+a\/c|from\s+account|debited\s+from\s+a\/c)\s*([xX*]*\d{3,4})/i);
+  const toAccMatch = text.match(/(?:to\s+a\/c|to\s+account|credited\s+to\s+a\/c)\s*([xX*]*\d{3,4})/i);
+  const genericAccMatch = text.match(/(?:a\/c|account|acct)\s*(?:no\.?)?\s*(?:ending\s*)?([xX*]*\d{3,4})/i) ||
     text.match(/(?:sbi|hdfc|icici|axis|kotak|pnb|bob|canara|paytm|airtel)\s*(?:bank|a\/c)?\s*([xX*]*\d{3,4})/i);
-  if (accMatch && accMatch[1]) {
-    accountMask = accMatch[1].replace(/[xX*]/g, "").trim();
-  }
+
+  if (fromAccMatch && fromAccMatch[1]) fromAccountMask = fromAccMatch[1].replace(/[xX*]/g, "").trim();
+  if (toAccMatch && toAccMatch[1]) toAccountMask = toAccMatch[1].replace(/[xX*]/g, "").trim();
+  if (genericAccMatch && genericAccMatch[1]) accountMask = genericAccMatch[1].replace(/[xX*]/g, "").trim();
+  if (!accountMask) accountMask = fromAccountMask || toAccountMask;
 
   // 5. Extract Date
   let date = new Date().toISOString().slice(0, 10);
